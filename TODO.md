@@ -16,7 +16,7 @@ about it, not because it's hard.
 
 ---
 
-## Phase 0 — Skeleton  *(~2h)*
+## Phase 0 — Skeleton  *(~2h)*  ✅ **done**
 
 Goal: `docker compose up` gives a running app on an empty schema.
 
@@ -25,7 +25,7 @@ Goal: `docker compose up` gives a running app on an empty schema.
 - [x] 🤖 Testcontainers wired for tests — `spring-boot-testcontainers` + `org.testcontainers:postgresql`
 - [x] 🤖 JDK 25 installed at `~/.jdks/jdk-25.0.4.1+1` + `env.sh` *(global JDK 17 untouched — React Native needs it)*
 - [x] 👤 `source env.sh` in any terminal you build from — `java -version` must say 25
-- [ ] 👤 `git init`, public GitHub repo, first commit
+- [x] 👤 `git init`, public GitHub repo, first commit
 - [x] 🤖 `.gitignore`, `README.md` stub, MIT licence
 
 **Acceptance**
