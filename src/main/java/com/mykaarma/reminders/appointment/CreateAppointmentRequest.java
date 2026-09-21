@@ -1,17 +1,41 @@
 package com.mykaarma.reminders.appointment;
 
 import com.mykaarma.reminders.appointment.Appointment.Channel;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 
 // scheduledAt must carry an offset. Without one we would have to guess the zone,
 // and a wrong guess sends every reminder an hour or more off.
-public record CreateAppointmentRequest(String dealershipId, Customer customer, Vehicle vehicle, String serviceType,
-		OffsetDateTime scheduledAt) {
+public record CreateAppointmentRequest(
+		@NotBlank String dealershipId,
+		@NotNull @Valid Customer customer,
+		@NotNull @Valid Vehicle vehicle,
+		@NotBlank @Size(max = 64) String serviceType,
+		@NotNull OffsetDateTime scheduledAt) {
 
-	public record Customer(String name, String phone, String email, Channel channel) {
+	public record Customer(
+			@NotBlank @Size(max = 200) String name,
+			@Pattern(regexp = "\\+[1-9]\\d{1,14}", message = "must be E.164, e.g. +14155550137") String phone,
+			@Email @Size(max = 320) String email,
+			@NotNull Channel channel) {
+
+		@AssertTrue(message = "SMS needs a phone, EMAIL needs an email")
+		public boolean isContactPresentForChannel() {
+			String contact = channel == Channel.SMS ? phone : email;
+			return channel == null || (contact != null && !contact.isBlank());
+		}
+
 	}
 
-	public record Vehicle(String vin, String description) {
+	public record Vehicle(
+			@Pattern(regexp = "[A-HJ-NPR-Z0-9]{17}", message = "must be a 17-character VIN") String vin,
+			@NotBlank @Size(max = 200) String description) {
 	}
 
 }

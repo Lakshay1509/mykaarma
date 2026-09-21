@@ -22,6 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class AppointmentControllerTest {
 
+	// Each test sends this, or this with exactly one thing broken.
+	// "Now" is frozen at 2026-09-21T12:00Z (TestcontainersConfiguration).
+	private static final String VALID = """
+			{"dealershipId": "DLR-T",
+			 "customer": {"name": "Ana Marquez", "phone": "+14155550137", "channel": "SMS"},
+			 "vehicle": {"vin": "1HGCM82633A004352", "description": "2019 Civic"},
+			 "serviceType": "OIL_CHANGE",
+			 "scheduledAt": "2026-12-01T14:00:00-06:00"}""";
+
 	private final MockMvcTester mvc;
 
 	private final JdbcTemplate jdbc;
@@ -39,7 +48,7 @@ class AppointmentControllerTest {
 
 	@Test
 	void createdAppointment_isServedAtItsLocation() throws Exception {
-		MvcTestResult created = post("DLR-T", "2026-12-01T14:00:00-06:00");
+		MvcTestResult created = post(VALID);
 
 		assertThat(created).hasStatus(HttpStatus.CREATED)
 			.bodyJson()
@@ -54,25 +63,54 @@ class AppointmentControllerTest {
 
 	@Test
 	void unknownDealership_isRejected() {
-		assertThat(post("DLR-NOPE", "2026-12-01T14:00:00-06:00")).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT);
+		assertThat(post(VALID.replace("DLR-T", "DLR-NOPE"))).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT);
 	}
 
 	@Test
 	void scheduledAtWithoutOffset_isRejected() {
-		assertThat(post("DLR-T", "2026-12-01T14:00:00")).hasStatus(HttpStatus.BAD_REQUEST);
+		assertThat(post(VALID.replace("14:00:00-06:00", "14:00:00"))).hasStatus(HttpStatus.BAD_REQUEST);
 	}
 
-	private MvcTestResult post(String dealershipId, String scheduledAt) {
+	@Test
+	void missingCustomerName_isRejected() {
+		assertThat(post(VALID.replace("\"name\": \"Ana Marquez\", ", ""))).hasStatus(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
+	void phoneNotInE164_isRejected() {
+		assertThat(post(VALID.replace("+14155550137", "4155550137"))).hasStatus(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
+	void emailChannelWithoutEmail_isRejected() {
+		assertThat(post(VALID.replace("\"SMS\"", "\"EMAIL\""))).hasStatus(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
+	void idempotencyKeyOver128Chars_isRejected() {
+		assertThat(post(VALID, "k".repeat(129))).hasStatus(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
+	void scheduledAtInThePast_isRejected() {
+		assertThat(post(VALID.replace("2026-12-01", "2026-09-20"))).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT);
+	}
+
+	@Test
+	void scheduledAtMoreThan365DaysOut_isRejected() {
+		assertThat(post(VALID.replace("2026-12-01", "2027-12-01"))).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT);
+	}
+
+	private MvcTestResult post(String body) {
+		return post(body, "key-1");
+	}
+
+	private MvcTestResult post(String body, String idempotencyKey) {
 		return mvc.post()
 			.uri("/v1/appointments")
-			.header("Idempotency-Key", "key-1")
+			.header("Idempotency-Key", idempotencyKey)
 			.contentType(MediaType.APPLICATION_JSON)
-			.content("""
-					{"dealershipId": "%s",
-					 "customer": {"name": "Ana Marquez", "phone": "+14155550137", "channel": "SMS"},
-					 "vehicle": {"vin": "1HGCM82633A004352", "description": "2019 Civic"},
-					 "serviceType": "OIL_CHANGE",
-					 "scheduledAt": "%s"}""".formatted(dealershipId, scheduledAt))
+			.content(body)
 			.exchange();
 	}
 

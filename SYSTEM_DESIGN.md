@@ -307,11 +307,17 @@ Location: /v1/appointments/3f2b...
 | Field | Rule | On failure |
 |---|---|---|
 | `Idempotency-Key` | present, ≤128 chars | `400` |
+| required fields, lengths, VIN | present, fit their columns | `400` |
+| `phone` | E.164 | `400` |
+| `channel` | matching contact field present (DB `CHECK` backs this) | `400` |
+| `scheduledAt` | parseable with offset | `400` |
+| `scheduledAt` | `> now()`, `≤ now() + 365d` | `422` |
 | `dealershipId` | exists | `422` |
-| `scheduledAt` | parseable with offset, `> now()`, `< now() + 365d` | `422` |
-| `phone` | E.164 | `422` |
-| `channel` | matching contact field present (DB `CHECK` backs this) | `422` |
 | body | ≤ 8 KB | `413` |
+
+`400` means the request itself is malformed: the client can tell from the request
+alone what to fix. `422` means it is well formed but the answer depends on our state
+or clock: an unknown dealership, a time outside the booking window.
 
 **Idempotent replay:** same key + same dealership → `200 OK` with the original
 appointment, no new rows. Same key + *different* payload → `409 Conflict`
