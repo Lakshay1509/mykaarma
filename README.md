@@ -13,6 +13,9 @@ docker compose up -d          # Postgres 16 + app
 curl localhost:8080/actuator/health
 ```
 
+Local runs load three demo dealerships: `DLR-0042` (Chicago), `DLR-0007` (New York),
+`DLR-0105` (Phoenix, no DST).
+
 ## Develop
 
 ```bash

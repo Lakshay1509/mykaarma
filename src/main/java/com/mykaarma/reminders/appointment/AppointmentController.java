@@ -31,16 +31,19 @@ public class AppointmentController {
 	@PostMapping
 	ResponseEntity<AppointmentResponse> create(@RequestHeader("Idempotency-Key") @Size(max = 128) String idempotencyKey,
 			@Valid @RequestBody CreateAppointmentRequest request) {
-		Appointment appointment = service.create(request, idempotencyKey);
-		return ResponseEntity.created(URI.create("/v1/appointments/" + appointment.getPublicId()))
-			.body(AppointmentResponse.from(appointment));
+		AppointmentService.Booking booking = service.create(request, idempotencyKey);
+		AppointmentResponse body = AppointmentResponse.from(booking.appointment());
+		if (!booking.created()) {
+			return ResponseEntity.ok(body);
+		}
+		return ResponseEntity.created(URI.create("/v1/appointments/" + body.id())).body(body);
 	}
 
 	@GetMapping("/{id}")
 	AppointmentResponse get(@PathVariable UUID id) {
 		return appointments.findByPublicId(id)
 			.map(AppointmentResponse::from)
-			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No appointment with id " + id));
 	}
 
 }

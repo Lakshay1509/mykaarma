@@ -17,6 +17,7 @@ services:
     build: .
     environment:
       DB_HOST: postgres
+      SPRING_PROFILES_ACTIVE: dev   # loads the demo dealerships
     ports:
       - "8080:8080"
     depends_on:

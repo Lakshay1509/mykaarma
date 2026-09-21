@@ -101,6 +101,51 @@ class AppointmentControllerTest {
 		assertThat(post(VALID.replace("2026-12-01", "2027-12-01"))).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT);
 	}
 
+	@Test
+	void retryWithSameKey_returnsTheOriginalAndCreatesNothing() throws Exception {
+		MvcTestResult first = post(VALID);
+		MvcTestResult retry = post(VALID);
+
+		assertThat(first).hasStatus(HttpStatus.CREATED);
+		assertThat(retry).hasStatusOk().bodyJson().isStrictlyEqualTo(first.getResponse().getContentAsString());
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM appointment WHERE idempotency_key = 'key-1'", Integer.class))
+			.isEqualTo(1);
+	}
+
+	@Test
+	void sameKeyWithDifferentDetails_isRejected() {
+		post(VALID);
+
+		assertThat(post(VALID.replace("2026-12-01", "2026-12-02"))).hasStatus(HttpStatus.CONFLICT);
+	}
+
+	@Test
+	void sameKeyAtAnotherDealership_isANewBooking() {
+		jdbc.update("INSERT INTO dealership (external_id, name, timezone) VALUES ('DLR-U', 'Other Motors', 'America/New_York')");
+		post(VALID);
+
+		assertThat(post(VALID.replace("DLR-T", "DLR-U"))).hasStatus(HttpStatus.CREATED);
+	}
+
+	@Test
+	void validationError_saysWhichFieldAndWhy() {
+		assertThat(post(VALID.replace("+14155550137", "4155550137"))).hasStatus(HttpStatus.BAD_REQUEST)
+			.hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+			.bodyJson()
+			.extractingPath("$.errors")
+			.asArray()
+			.containsExactly("customer.phone: must be E.164, e.g. +14155550137");
+	}
+
+	@Test
+	void pastDate_isAProblemWithAReadableDetail() {
+		assertThat(post(VALID.replace("2026-12-01", "2026-09-20"))).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+			.hasContentType(MediaType.APPLICATION_PROBLEM_JSON)
+			.bodyJson()
+			.extractingPath("$.detail")
+			.isEqualTo("scheduledAt must be in the future");
+	}
+
 	private MvcTestResult post(String body) {
 		return post(body, "key-1");
 	}

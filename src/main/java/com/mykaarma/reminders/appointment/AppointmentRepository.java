@@ -8,4 +8,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
 
 	Optional<Appointment> findByPublicId(UUID publicId);
 
+	Optional<Appointment> findByDealershipAndIdempotencyKey(Dealership dealership, String idempotencyKey);
+
 }

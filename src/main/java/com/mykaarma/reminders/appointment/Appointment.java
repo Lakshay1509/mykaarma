@@ -11,6 +11,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.SourceType;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -86,6 +87,16 @@ public class Appointment {
 		this.localTz = dealership.getTimezone();
 		this.status = Status.BOOKED;
 		this.idempotencyKey = idempotencyKey;
+	}
+
+	// What a retry must match to count as the same booking. Fields the server
+	// assigns (public id, status, local tz) are left out.
+	boolean sameBookingAs(Appointment other) {
+		return Objects.equals(customerName, other.customerName) && Objects.equals(customerPhone, other.customerPhone)
+				&& Objects.equals(customerEmail, other.customerEmail) && channel == other.channel
+				&& Objects.equals(vehicleVin, other.vehicleVin)
+				&& Objects.equals(vehicleDescription, other.vehicleDescription)
+				&& Objects.equals(serviceType, other.serviceType) && Objects.equals(scheduledAt, other.scheduledAt);
 	}
 
 	public UUID getPublicId() {
