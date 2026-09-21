@@ -172,6 +172,9 @@ CREATE TABLE appointment (
     customer_phone  VARCHAR(20),              -- E.164
     customer_email  VARCHAR(320),
     channel         VARCHAR(16)  NOT NULL,    -- SMS | EMAIL
+    vehicle_vin     VARCHAR(17),              -- optional
+    vehicle_description VARCHAR(200) NOT NULL,
+    service_type    VARCHAR(64)  NOT NULL,    -- dealer's own codes: free text
     scheduled_at    TIMESTAMPTZ  NOT NULL,    -- the instant, always UTC-normalised
     local_tz        VARCHAR(64)  NOT NULL,    -- snapshot of dealership tz at booking
     status          VARCHAR(16)  NOT NULL,    -- BOOKED|CANCELLED|COMPLETED|NO_SHOW
@@ -181,13 +184,15 @@ CREATE TABLE appointment (
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
     CONSTRAINT uq_appt_idem UNIQUE (dealership_id, idempotency_key),
-    CONSTRAINT ck_contact   CHECK (customer_phone IS NOT NULL
-                                OR customer_email IS NOT NULL),
+    -- Implies "at least one contact present", so no separate check for that.
     CONSTRAINT ck_channel   CHECK (
         (channel = 'SMS'   AND customer_phone IS NOT NULL) OR
-        (channel = 'EMAIL' AND customer_email IS NOT NULL))
+        (channel = 'EMAIL' AND customer_email IS NOT NULL)),
+    -- CHECK, not a Postgres ENUM: values can change later without rebuilding a type.
+    CONSTRAINT ck_status    CHECK (status IN ('BOOKED','CANCELLED','COMPLETED','NO_SHOW'))
 );
-CREATE INDEX idx_appt_dealer_time ON appointment (dealership_id, scheduled_at);
+-- idx_appt_dealer_time (dealership_id, scheduled_at) ships with the
+-- dealership listing endpoint, not before: no query uses it until then.
 
 CREATE TABLE reminder (
     id               BIGSERIAL PRIMARY KEY,
