@@ -294,7 +294,7 @@ Location: /v1/appointments/3f2b...
   "id": "3f2b8c44-...",
   "status": "BOOKED",
   "scheduledAt": "2026-09-24T19:00:00Z",
-  "localTime": "2026-09-24T14:00:00[America/Chicago]",
+  "localTime": "2026-09-24T14:00:00-05:00",
   "reminders": [
     { "type": "T24H", "dueAt": "2026-09-23T19:00:00Z", "status": "PENDING" },
     { "type": "T2H",  "dueAt": "2026-09-24T17:00:00Z", "status": "PENDING" }
