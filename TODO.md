@@ -35,17 +35,17 @@ Goal: `docker compose up` gives a running app on an empty schema.
 
 ---
 
-## Phase 1 — Booking  *(~4h)*
+## Phase 1 — Booking  *(~4h)*  ✅ **done**
 
 Goal: `POST /appointments` persists a booking. No reminders yet.
 
-- [ ] 🤖 Flyway `V1__baseline.sql` — `dealership`, `appointment` (§4 of the design)
-- [ ] 🤖 JPA entities + repositories
-- [ ] 🤖 `POST /v1/appointments` + `GET /v1/appointments/{id}`
-- [ ] 👤 🧠 Request validation — future-dated, ≤365d out, E.164 phone, channel matches contact
-- [ ] 👤 🧠 **Idempotent creation** — `Idempotency-Key` header, `UNIQUE (dealership_id, idempotency_key)`, replay returns the original
-- [ ] 🤖 RFC 7807 error handling (`@RestControllerAdvice`)
-- [ ] 🤖 Seed 3 dealerships across 3 timezones for local testing
+- [x] 🤖 Flyway `V1__baseline.sql` — `dealership`, `appointment` (§4 of the design)
+- [x] 🤖 JPA entities + repositories
+- [x] 🤖 `POST /v1/appointments` + `GET /v1/appointments/{id}`
+- [x] 👤 🧠 Request validation — future-dated, ≤365d out, E.164 phone, channel matches contact
+- [x] 👤 🧠 **Idempotent creation** — `Idempotency-Key` header, `UNIQUE (dealership_id, idempotency_key)`, replay returns the original
+- [x] 🤖 RFC 7807 error handling (`@RestControllerAdvice`)
+- [x] 🤖 Seed 3 dealerships across 3 timezones for local testing
 
 **Acceptance**
 - Two `POST`s with the same key → **one** appointment, `201` then `200`

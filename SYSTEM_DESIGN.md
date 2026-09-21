@@ -306,22 +306,25 @@ Location: /v1/appointments/3f2b...
 
 | Field | Rule | On failure |
 |---|---|---|
-| `Idempotency-Key` | present, ≤128 chars | `400` |
-| required fields, lengths, VIN | present, fit their columns | `400` |
+| `Idempotency-Key` | present, non-blank, ≤128 chars | `400` |
+| required fields, lengths, VIN | present, fit their columns, no U+0000 (Postgres can't store it) | `400` |
 | `phone` | E.164 | `400` |
 | `channel` | matching contact field present (DB `CHECK` backs this) | `400` |
 | `scheduledAt` | parseable with offset | `400` |
 | `scheduledAt` | `> now()`, `≤ now() + 365d` | `422` |
+| `scheduledAt` | offset is one the dealership's zone shows at that local time (rejects DST-gap times, a stale offset, and `Z`) | `422` |
 | `dealershipId` | exists | `422` |
-| body | ≤ 8 KB | `413` |
+| body | ≤ 8 KB, by `Content-Length` (a chunked body is not checked; cap it at the ingress) | `413` |
 
 `400` means the request itself is malformed: the client can tell from the request
 alone what to fix. `422` means it is well formed but the answer depends on our state
 or clock: an unknown dealership, a time outside the booking window.
 
 **Idempotent replay:** same key + same dealership → `200 OK` with the original
-appointment, no new rows. Same key + *different* payload → `409 Conflict`
-(a real client bug; silently returning the old object hides it).
+appointment, no new rows. The replay lookup runs *before* the time rules, so a retry
+that arrives after the booking window has moved on still gets the original answer.
+Same key + *different* payload → `409 Conflict` (a real client bug; silently
+returning the old object hides it).
 
 ### Other endpoints
 

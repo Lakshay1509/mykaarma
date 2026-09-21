@@ -1,6 +1,7 @@
 package com.mykaarma.reminders.appointment;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.util.UUID;
@@ -29,7 +30,8 @@ public class AppointmentController {
 	}
 
 	@PostMapping
-	ResponseEntity<AppointmentResponse> create(@RequestHeader("Idempotency-Key") @Size(max = 128) String idempotencyKey,
+	ResponseEntity<AppointmentResponse> create(
+			@RequestHeader("Idempotency-Key") @NotBlank @Size(max = 128) String idempotencyKey,
 			@Valid @RequestBody CreateAppointmentRequest request) {
 		AppointmentService.Booking booking = service.create(request, idempotencyKey);
 		AppointmentResponse body = AppointmentResponse.from(booking.appointment());
