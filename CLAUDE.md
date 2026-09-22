@@ -72,8 +72,8 @@ the linked section first.
    Multiple workers mean multiple clocks; a fast node would silently send early (§9 FM-7).
 5. **`due_at` arithmetic happens on `Instant`**, never on `ZonedDateTime`/`LocalDateTime`.
    Elapsed-time subtraction is DST-correct by construction; calendar math is not (§6.1).
-6. **The idempotency key is deterministic** — UUIDv5 of `(public_id, reminder_type)`,
-   computed once and stored. Never regenerate it on retry; that defeats its purpose (§7.3).
+6. **The idempotency key is deterministic** — name-based UUID (v3, `UUID.nameUUIDFromBytes`)
+   of `(public_id, reminder_type)`, computed once and stored. Never regenerate it on retry; that defeats its purpose (§7.3).
 7. **Partial indexes stay partial.** `WHERE status = 'PENDING'` is what keeps the claim
    query flat as the table grows past 100M rows (§4).
 8. **Reminders due in the past at creation time are `SKIPPED_LATE`, not `PENDING`.**

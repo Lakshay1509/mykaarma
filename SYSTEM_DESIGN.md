@@ -517,7 +517,7 @@ worker claims ──► sender.send() succeeds ──► 💥 worker dies before
 The fix is that the second send is byte-identical to the first, including its key:
 
 ```java
-// UUIDv5 — a pure function of (appointment, type). Same input, same UUID, forever.
+// Name-based UUID (v3, stdlib) — a pure function of (appointment, type). Same input, same UUID, forever.
 UUID key = UUID.nameUUIDFromBytes(
         (appointment.publicId() + ":" + reminderType).getBytes(UTF_8));
 ```

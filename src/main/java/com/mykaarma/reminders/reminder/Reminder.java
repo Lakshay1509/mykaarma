@@ -9,7 +9,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.ManyToOne;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 public class Reminder {
@@ -33,6 +35,8 @@ public class Reminder {
 	@Enumerated(EnumType.STRING)
 	private Status status;
 
+	private UUID idempotencyKey;
+
 	protected Reminder() {
 	}
 
@@ -43,10 +47,18 @@ public class Reminder {
 		// Booked inside the lead time: as PENDING it would fire at once, e.g. "your
 		// appointment is tomorrow" three hours before it (§8.2).
 		this.status = dueAt.isBefore(now) ? Status.SKIPPED_LATE : Status.PENDING;
+		// Derived, never random: a resend after a crash must carry the same key as the
+		// attempt that may already have delivered, so the provider drops it (§7.3).
+		this.idempotencyKey = UUID
+			.nameUUIDFromBytes((appointment.getPublicId() + ":" + reminderType).getBytes(StandardCharsets.UTF_8));
 	}
 
 	public Status getStatus() {
 		return status;
+	}
+
+	public UUID getIdempotencyKey() {
+		return idempotencyKey;
 	}
 
 }
