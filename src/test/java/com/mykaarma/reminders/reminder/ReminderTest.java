@@ -9,6 +9,7 @@ import com.mykaarma.reminders.appointment.DealershipRepository;
 import com.mykaarma.reminders.reminder.Reminder.Status;
 import java.time.Duration;
 import java.time.Instant;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -35,6 +36,11 @@ class ReminderTest {
 		this.jdbc = jdbc;
 	}
 
+	@BeforeEach
+	void dealership() {
+		jdbc.update("INSERT INTO dealership (external_id, name, timezone) VALUES ('DLR-R', 'Test Motors', 'America/Chicago')");
+	}
+
 	@ParameterizedTest(name = "booked {0} out -> T24H {1}, T2H {2}")
 	@CsvSource({ "PT25H, PENDING, PENDING", "PT3H, SKIPPED_LATE, PENDING", "PT30M, SKIPPED_LATE, SKIPPED_LATE" })
 	void reminderAlreadyDueAtBooking_startsSkippedLate(Duration notice, Status t24h, Status t2h) {
@@ -45,16 +51,16 @@ class ReminderTest {
 	}
 
 	@Test
-	void idempotencyKey_isStablePerAppointmentAndDiffersByType() {
+	void idempotencyKey_isStablePerReminderAndDiffersByTypeAndAppointment() {
 		Appointment appointment = appointmentIn(Duration.ofHours(25));
 
 		assertThat(new Reminder(appointment, ReminderType.T24H, NOW).getIdempotencyKey())
 			.isEqualTo(new Reminder(appointment, ReminderType.T24H, NOW).getIdempotencyKey())
-			.isNotEqualTo(new Reminder(appointment, ReminderType.T2H, NOW).getIdempotencyKey());
+			.isNotEqualTo(new Reminder(appointment, ReminderType.T2H, NOW).getIdempotencyKey())
+			.isNotEqualTo(new Reminder(appointmentIn(Duration.ofHours(25)), ReminderType.T24H, NOW).getIdempotencyKey());
 	}
 
 	private Appointment appointmentIn(Duration notice) {
-		jdbc.update("INSERT INTO dealership (external_id, name, timezone) VALUES ('DLR-R', 'Test Motors', 'America/Chicago')");
 		return new Appointment(dealerships.findByExternalId("DLR-R").orElseThrow(), "Ana Marquez", "+14155550137",
 				null, Channel.SMS, null, "2019 Civic", "OIL_CHANGE", NOW.plus(notice), "key-1");
 	}

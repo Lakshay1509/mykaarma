@@ -51,7 +51,7 @@ class ConcurrentBookingTest {
 	}
 
 	@Test
-	void concurrentRetriesOfOneBooking_createExactlyOneAppointment() {
+	void concurrentRetriesOfOneBooking_createExactlyOneAppointmentAndAllGetIt() throws Exception {
 		CountDownLatch start = new CountDownLatch(1);
 		List<Future<MvcTestResult>> futures;
 		try (var pool = Executors.newFixedThreadPool(RETRIES)) {
@@ -65,6 +65,8 @@ class ConcurrentBookingTest {
 
 		assertThat(results).allSatisfy(r -> assertThat(r).hasStatus2xxSuccessful());
 		assertThat(results).filteredOn(r -> r.getResponse().getStatus() == 201).hasSize(1);
+		assertThat(results).extracting(r -> r.getResponse().getContentAsString())
+			.containsOnly(results.getFirst().getResponse().getContentAsString());
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM appointment WHERE idempotency_key = 'race-key'",
 				Integer.class))
 			.isEqualTo(1);

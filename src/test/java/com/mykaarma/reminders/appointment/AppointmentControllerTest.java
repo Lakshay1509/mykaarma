@@ -3,6 +3,7 @@ package com.mykaarma.reminders.appointment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mykaarma.reminders.TestcontainersConfiguration;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,40 @@ class AppointmentControllerTest {
 		assertThat(mvc.get().uri(location)).hasStatusOk()
 			.bodyJson()
 			.isStrictlyEqualTo(created.getResponse().getContentAsString());
+	}
+
+	@Test
+	void booking_writesBothRemindersAtTheirLeadTimes() {
+		post(VALID);
+
+		assertThat(reminderRows()).containsExactly("T24H PENDING 2026-11-30T20:00:00Z", "T2H PENDING 2026-12-01T18:00:00Z");
+	}
+
+	@Test
+	void remindersEndpoint_showsWhichRemindersWereSkippedAsTooLate() {
+		String location = post(VALID.replace("2026-12-01T14:00:00-06:00", "2026-09-21T10:00:00-05:00")).getResponse()
+			.getHeader("Location");
+
+		assertThat(mvc.get().uri(location + "/reminders")).hasStatusOk().bodyJson().isLenientlyEqualTo("""
+				[{"type": "T24H", "status": "SKIPPED_LATE", "dueAt": "2026-09-20T15:00:00Z"},
+				 {"type": "T2H", "status": "PENDING", "dueAt": "2026-09-21T13:00:00Z"}]""")
+			.extractingPath("$[*].type")
+			.asArray()
+			.containsExactly("T24H", "T2H");
+	}
+
+	@Test
+	void failedReminderInsert_leavesNoAppointmentBehind() {
+		jdbc.execute("ALTER TABLE reminder ADD CONSTRAINT reject_all CHECK (false) NOT VALID");
+		try {
+			post(VALID);
+		}
+		finally {
+			jdbc.execute("ALTER TABLE reminder DROP CONSTRAINT reject_all");
+		}
+
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM appointment WHERE idempotency_key = 'key-1'", Integer.class))
+			.isZero();
 	}
 
 	@Test
@@ -150,6 +185,7 @@ class AppointmentControllerTest {
 		assertThat(retry).hasStatusOk().bodyJson().isStrictlyEqualTo(first.getResponse().getContentAsString());
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM appointment WHERE idempotency_key = 'key-1'", Integer.class))
 			.isEqualTo(1);
+		assertThat(reminderRows()).hasSize(2);
 	}
 
 	@Test
@@ -206,6 +242,13 @@ class AppointmentControllerTest {
 			.bodyJson()
 			.extractingPath("$.detail")
 			.isEqualTo("scheduledAt must be in the future");
+	}
+
+	private List<String> reminderRows() {
+		return jdbc.queryForList("""
+				SELECT r.reminder_type || ' ' || r.status || ' ' || to_char(r.due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+				FROM reminder r JOIN appointment a ON a.id = r.appointment_id
+				WHERE a.idempotency_key = 'key-1' ORDER BY r.due_at""", String.class);
 	}
 
 	private MvcTestResult post(String body) {

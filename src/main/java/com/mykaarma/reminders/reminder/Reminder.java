@@ -47,10 +47,16 @@ public class Reminder {
 		// Booked inside the lead time: as PENDING it would fire at once, e.g. "your
 		// appointment is tomorrow" three hours before it (§8.2).
 		this.status = dueAt.isBefore(now) ? Status.SKIPPED_LATE : Status.PENDING;
-		// Derived, never random: a resend after a crash must carry the same key as the
-		// attempt that may already have delivered, so the provider drops it (§7.3).
 		this.idempotencyKey = UUID
 			.nameUUIDFromBytes((appointment.getPublicId() + ":" + reminderType).getBytes(StandardCharsets.UTF_8));
+	}
+
+	public ReminderType getReminderType() {
+		return reminderType;
+	}
+
+	public Instant getDueAt() {
+		return dueAt;
 	}
 
 	public Status getStatus() {

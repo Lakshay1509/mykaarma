@@ -300,11 +300,7 @@ Location: /v1/appointments/3f2b...
   "id": "3f2b8c44-...",
   "status": "BOOKED",
   "scheduledAt": "2026-09-24T19:00:00Z",
-  "localTime": "2026-09-24T14:00:00-05:00",
-  "reminders": [
-    { "type": "T24H", "dueAt": "2026-09-23T19:00:00Z", "status": "PENDING" },
-    { "type": "T2H",  "dueAt": "2026-09-24T17:00:00Z", "status": "PENDING" }
-  ]
+  "localTime": "2026-09-24T14:00:00-05:00"
 }
 ```
 
@@ -608,7 +604,7 @@ in the past. It must **not** fire.
 
 ```java
 Instant dueAt = scheduledAt.minus(type.lead());
-ReminderStatus initial = dueAt.isBefore(now) ? SKIPPED_LATE : PENDING;
+ReminderStatus initial = dueAt.isBefore(now) ? SKIPPED_LATE : PENDING;   // now = Postgres now(), FM-7
 ```
 
 Inserted as `SKIPPED_LATE` at creation time, not filtered at dispatch time. The row

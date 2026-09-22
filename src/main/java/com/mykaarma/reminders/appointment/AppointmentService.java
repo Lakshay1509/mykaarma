@@ -1,14 +1,19 @@
 package com.mykaarma.reminders.appointment;
 
+import com.mykaarma.reminders.reminder.Reminder;
+import com.mykaarma.reminders.reminder.ReminderRepository;
+import com.mykaarma.reminders.reminder.ReminderType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -20,11 +25,18 @@ public class AppointmentService {
 
 	private final AppointmentRepository appointments;
 
+	private final ReminderRepository reminders;
+
+	private final TransactionTemplate transactions;
+
 	private final Clock clock;
 
-	public AppointmentService(DealershipRepository dealerships, AppointmentRepository appointments, Clock clock) {
+	public AppointmentService(DealershipRepository dealerships, AppointmentRepository appointments,
+			ReminderRepository reminders, TransactionTemplate transactions, Clock clock) {
 		this.dealerships = dealerships;
 		this.appointments = appointments;
+		this.reminders = reminders;
+		this.transactions = transactions;
 		this.clock = clock;
 	}
 
@@ -65,7 +77,11 @@ public class AppointmentService {
 					+ " is not a local time in " + zone + ": wrong offset for that date, or inside a DST gap");
 		}
 		try {
-			return new Booking(appointments.saveAndFlush(candidate), true);
+			return new Booking(transactions.execute(tx -> {
+				Appointment saved = appointments.saveAndFlush(candidate);
+				reminders.saveAll(Stream.of(ReminderType.values()).map(type -> new Reminder(saved, type, now)).toList());
+				return saved;
+			}), true);
 		}
 		catch (DataIntegrityViolationException e) {
 			// A concurrent retry of this booking inserted first. The unique constraint

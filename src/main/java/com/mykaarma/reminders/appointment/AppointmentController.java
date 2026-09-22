@@ -1,9 +1,12 @@
 package com.mykaarma.reminders.appointment;
 
+import com.mykaarma.reminders.reminder.ReminderRepository;
+import com.mykaarma.reminders.reminder.ReminderResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,9 +27,13 @@ public class AppointmentController {
 
 	private final AppointmentRepository appointments;
 
-	public AppointmentController(AppointmentService service, AppointmentRepository appointments) {
+	private final ReminderRepository reminders;
+
+	public AppointmentController(AppointmentService service, AppointmentRepository appointments,
+			ReminderRepository reminders) {
 		this.service = service;
 		this.appointments = appointments;
+		this.reminders = reminders;
 	}
 
 	@PostMapping
@@ -43,8 +50,16 @@ public class AppointmentController {
 
 	@GetMapping("/{id}")
 	AppointmentResponse get(@PathVariable UUID id) {
+		return AppointmentResponse.from(find(id));
+	}
+
+	@GetMapping("/{id}/reminders")
+	List<ReminderResponse> reminders(@PathVariable UUID id) {
+		return reminders.findByAppointmentOrderByDueAt(find(id)).stream().map(ReminderResponse::from).toList();
+	}
+
+	private Appointment find(UUID id) {
 		return appointments.findByPublicId(id)
-			.map(AppointmentResponse::from)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No appointment with id " + id));
 	}
 

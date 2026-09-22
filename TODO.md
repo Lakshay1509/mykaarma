@@ -65,8 +65,8 @@ Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 - [x] 👤 🧠 `due_at` = `scheduledAt.minus(lead)` on an `Instant` *(§6.1 — DST-correct by construction)*
 - [x] 👤 🧠 Past-due at creation → `SKIPPED_LATE`, not `PENDING` *(§8.2 — the 3-hours-notice case)*
 - [x] 🤖 Deterministic idempotency key — name-based UUID (v3) from `(public_id, reminder_type)`
-- [ ] 🤖 Reminders inserted **in the same transaction** as the appointment
-- [ ] 🤖 `GET /v1/appointments/{id}/reminders` *(the proof endpoint + demo shot)*
+- [x] 🤖 Reminders inserted **in the same transaction** as the appointment
+- [x] 🤖 `GET /v1/appointments/{id}/reminders` *(the proof endpoint + demo shot)*
 
 **Acceptance**
 - Book 25h out → 2 reminders `PENDING`, correct `due_at`
