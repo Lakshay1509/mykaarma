@@ -62,8 +62,8 @@ Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 
 - [x] 🤖 Flyway `V2__reminder.sql` — `reminder` + `reminder_attempt` + the two partial indexes
 - [x] 👤 🧠 **`UNIQUE (appointment_id, reminder_type)`** — write this line yourself
-- [ ] 👤 🧠 `due_at` = `scheduledAt.minus(lead)` on an `Instant` *(§6.1 — DST-correct by construction)*
-- [ ] 👤 🧠 Past-due at creation → `SKIPPED_LATE`, not `PENDING` *(§8.2 — the 3-hours-notice case)*
+- [x] 👤 🧠 `due_at` = `scheduledAt.minus(lead)` on an `Instant` *(§6.1 — DST-correct by construction)*
+- [x] 👤 🧠 Past-due at creation → `SKIPPED_LATE`, not `PENDING` *(§8.2 — the 3-hours-notice case)*
 - [ ] 🤖 Deterministic idempotency key — UUIDv5 from `(public_id, reminder_type)`
 - [ ] 🤖 Reminders inserted **in the same transaction** as the appointment
 - [ ] 🤖 `GET /v1/appointments/{id}/reminders` *(the proof endpoint + demo shot)*
