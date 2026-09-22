@@ -12,13 +12,15 @@ CREATE TABLE reminder (
     last_error       TEXT,
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
+    -- The no-duplicates requirement (§7.3): a second reminder of the same type can't exist.
     CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type),
     CONSTRAINT ck_reminder_type CHECK (reminder_type IN ('T24H', 'T2H')),
     CONSTRAINT ck_reminder_status CHECK (
         status IN ('PENDING', 'CLAIMED', 'SENT', 'DEAD', 'SKIPPED_LATE', 'CANCELLED'))
 );
 
-CREATE INDEX idx_reminder_due   ON reminder (due_at)           WHERE status = 'PENDING';
+-- Keep these partial: indexing only PENDING and CLAIMED rows keeps claims fast past 100M rows (§4).
+CREATE INDEX idx_reminder_due  ON reminder (due_at)           WHERE status = 'PENDING';
 CREATE INDEX idx_reminder_lease ON reminder (lease_expires_at) WHERE status = 'CLAIMED';
 
 CREATE TABLE reminder_attempt (
