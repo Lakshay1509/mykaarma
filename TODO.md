@@ -60,8 +60,8 @@ Goal: `POST /appointments` persists a booking. No reminders yet.
 
 Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 
-- [ ] 🤖 Flyway `V2__reminder.sql` — `reminder` + `reminder_attempt` + the two partial indexes
-- [ ] 👤 🧠 **`UNIQUE (appointment_id, reminder_type)`** — write this line yourself
+- [x] 🤖 Flyway `V2__reminder.sql` — `reminder` + `reminder_attempt` + the two partial indexes
+- [x] 👤 🧠 **`UNIQUE (appointment_id, reminder_type)`** — write this line yourself
 - [ ] 👤 🧠 `due_at` = `scheduledAt.minus(lead)` on an `Instant` *(§6.1 — DST-correct by construction)*
 - [ ] 👤 🧠 Past-due at creation → `SKIPPED_LATE`, not `PENDING` *(§8.2 — the 3-hours-notice case)*
 - [ ] 🤖 Deterministic idempotency key — UUIDv5 from `(public_id, reminder_type)`

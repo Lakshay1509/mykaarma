@@ -209,7 +209,11 @@ CREATE TABLE reminder (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- ◄── THIS LINE IS REQUIREMENT F5 ──────────────────────────────
-    CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type)
+    CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type),
+    CONSTRAINT ck_reminder_type   CHECK (reminder_type IN ('T24H','T2H')),
+    -- A misspelt status would fall outside the partial indexes and never send.
+    CONSTRAINT ck_reminder_status CHECK (status IN
+        ('PENDING','CLAIMED','SENT','DEAD','SKIPPED_LATE','CANCELLED'))
 );
 
 -- Partial indexes: only rows in a working state are indexed, so the
@@ -228,9 +232,11 @@ CREATE TABLE reminder_attempt (
     worker_id    VARCHAR(64)  NOT NULL,
     started_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
     finished_at  TIMESTAMPTZ,
-    outcome      VARCHAR(16),               -- OK | RETRYABLE | PERMANENT | ABANDONED
+    outcome      VARCHAR(16),               -- NULL while in flight
     provider_ref VARCHAR(128),
-    error        TEXT
+    error        TEXT,
+
+    CONSTRAINT ck_attempt_outcome CHECK (outcome IN ('OK','RETRYABLE','PERMANENT','ABANDONED'))
 );
 CREATE INDEX idx_attempt_reminder ON reminder_attempt (reminder_id);
 ```
