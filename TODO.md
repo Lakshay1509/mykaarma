@@ -85,7 +85,7 @@ Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 
 Goal: reminders actually go out.
 
-- [ ] 👤 🧠 **The claim query** — `FOR UPDATE SKIP LOCKED`, `ORDER BY due_at`, `LIMIT 200`, lease 60s
+- [x] 👤 🧠 **The claim query** — `FOR UPDATE SKIP LOCKED`, `ORDER BY due_at`, `LIMIT 200`, lease 60s
 - [ ] 👤 🧠 `@Scheduled(fixedDelay = 1000)` dispatcher — **no ShedLock, deliberately**
 - [ ] 👤 🧠 Lease sweeper — expired `CLAIMED` → `PENDING` (30s, **with** ShedLock)
 - [ ] 🤖 `NotificationSender` interface + `LoggingNotificationSender` (masked recipient)
