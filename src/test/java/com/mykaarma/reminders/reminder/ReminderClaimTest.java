@@ -99,6 +99,21 @@ class ReminderClaimTest {
 			.containsExactly("worker-a", "worker-b");
 	}
 
+	@Test
+	void expiredLease_isReleasedForAnotherWorker_whileLiveLeaseIsLeftAlone() {
+		long abandoned = reminder("T24H", "PENDING", "now() - interval '2 minutes'");
+		long inFlight = reminder("T2H", "PENDING", "now() - interval '1 minute'");
+		reminders.claimDue("worker-a");
+		jdbc.update("UPDATE reminder SET lease_expires_at = now() - interval '1 second' WHERE id = ?", abandoned);
+
+		reminders.releaseExpiredLeases();
+
+		assertThat(reminders.claimDue("worker-b")).hasSize(1);
+		assertThat(jdbc.queryForList("SELECT claimed_by FROM reminder WHERE id IN (?, ?) ORDER BY id", String.class,
+				abandoned, inFlight))
+			.containsExactly("worker-b", "worker-a");
+	}
+
 	private long reminder(String type, String status, String dueAt) {
 		return jdbc.queryForObject("""
 				INSERT INTO reminder (appointment_id, reminder_type, due_at, status, idempotency_key)

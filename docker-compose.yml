@@ -18,6 +18,7 @@ services:
     environment:
       DB_HOST: postgres
       SPRING_PROFILES_ACTIVE: dev   # loads the demo dealerships
+      APP_WORKER_ENABLED: "true"    # locally, one node is both API and worker
     ports:
       - "8080:8080"
     depends_on:

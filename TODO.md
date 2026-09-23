@@ -86,12 +86,12 @@ Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 Goal: reminders actually go out.
 
 - [x] 👤 🧠 **The claim query** — `FOR UPDATE SKIP LOCKED`, `ORDER BY due_at`, `LIMIT 200`, lease 60s
-- [ ] 👤 🧠 `@Scheduled(fixedDelay = 1000)` dispatcher — **no ShedLock, deliberately**
-- [ ] 👤 🧠 Lease sweeper — expired `CLAIMED` → `PENDING` (30s, **with** ShedLock)
+- [x] 👤 🧠 `@Scheduled(fixedDelay = 1000)` dispatcher — **no ShedLock, deliberately**
+- [x] 👤 🧠 Lease sweeper — expired `CLAIMED` → `PENDING` (30s, **no** ShedLock: idempotent + `SKIP LOCKED`, §6.3)
 - [ ] 🤖 `NotificationSender` interface + `LoggingNotificationSender` (masked recipient)
 - [ ] 👤 🧠 Send outside the transaction — claim (TX1) → send → settle (TX2)
 - [ ] 🤖 Message body rendering using `local_tz` *("Tue 2:00 PM", not UTC)*
-- [ ] 🤖 `worker.enabled` profile flag — one JAR, two roles
+- [x] 🤖 `worker.enabled` profile flag — one JAR, two roles
 
 **Acceptance**
 - A due reminder logs a `NOTIFICATION` line and flips to `SENT`

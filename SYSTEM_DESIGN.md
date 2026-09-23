@@ -389,15 +389,25 @@ RETURNING *;
 
 ### 6.3 Lease reclamation
 
-A separate sweeper (`@Scheduled(fixedDelay = 30s)`, guarded by ShedLock because it
-genuinely should be a singleton):
+A separate sweeper (`@Scheduled(fixedDelay = 30s)`) on every worker, like the claim loop:
 
 ```sql
 UPDATE reminder
    SET status = 'PENDING', claimed_by = NULL, lease_expires_at = NULL
- WHERE status = 'CLAIMED'
-   AND lease_expires_at < now();
+ WHERE id IN (
+       SELECT id
+         FROM reminder
+        WHERE status = 'CLAIMED'
+          AND lease_expires_at < now()
+          FOR UPDATE SKIP LOCKED
+ );
 ```
+
+**No ShedLock here either.** The sweep is idempotent: a row one worker has already
+released no longer matches `status = 'CLAIMED'`, and `SKIP LOCKED` means two concurrent
+sweeps step over each other instead of waiting or deadlocking. A lock would only save
+a couple of empty index scans every 30s, which isn't worth a dependency and a lock
+table. ShedLock is for jobs that would do harm if they ran twice (§10.2).
 
 A worker that is killed mid-flight loses its claim after 60 seconds and the reminder
 is retried. This is what makes the system tolerant of pod evictions — and it's also
