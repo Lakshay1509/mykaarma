@@ -29,7 +29,7 @@ class DispatcherTest {
 
 	@AfterEach
 	void cleanUp() {
-		jdbc.update("DELETE FROM appointment WHERE idempotency_key = 'dispatch-key'");
+		jdbc.update("DELETE FROM appointment WHERE idempotency_key LIKE 'dispatch-%'");
 		jdbc.update("DELETE FROM dealership WHERE external_id = 'DLR-D'");
 	}
 
@@ -57,6 +57,40 @@ class DispatcherTest {
 					String.class, id))
 			.contains("body=Reminder: your OIL_CHANGE appointment for the 2019 Civic is Tue 2:00 PM")
 			.doesNotContain("+14155550137");
+	}
+
+	// The test clock reads 2026-09-21 12:00Z. The T24H is more overdue than the T2H and
+	// still gets sent, so a grace window on due_at can't pass this test (§8.3).
+	@Test
+	void t2hTwoHoursLate_isSkipped_whileT24hFourHoursLate_stillSends(CapturedOutput output)
+			throws InterruptedException {
+		jdbc.update("INSERT INTO dealership (external_id, name, timezone) VALUES ('DLR-D', 'Dispatch Motors', 'America/Chicago')");
+		long t2h = reminder("T2H", "2026-09-21 12:00:00+00", "2026-09-21 10:00:00+00");
+		long t24h = reminder("T24H", "2026-09-22 08:00:00+00", "2026-09-21 08:00:00+00");
+
+		for (int i = 0; i < 50 && jdbc.queryForObject(
+				"SELECT count(*) FROM reminder WHERE id IN (?, ?) AND status IN ('PENDING', 'CLAIMED')", Integer.class,
+				t2h, t24h) > 0; i++) {
+			Thread.sleep(100);
+		}
+
+		assertThat(jdbc.queryForList("SELECT status FROM reminder WHERE id IN (?, ?) ORDER BY id", String.class, t2h,
+				t24h))
+			.containsExactly("SKIPPED_LATE", "SENT");
+		assertThat(output).doesNotContain("type=T2H");
+	}
+
+	private long reminder(String type, String scheduledAt, String dueAt) {
+		return jdbc.queryForObject("""
+				WITH a AS (INSERT INTO appointment (dealership_id, customer_name, customer_phone, channel,
+				           vehicle_description, service_type, scheduled_at, local_tz, status, idempotency_key)
+				           SELECT id, 'Ana Marquez', '+14155550137', 'SMS', '2019 Civic', 'OIL_CHANGE',
+				                  ?::timestamptz, 'America/Chicago', 'BOOKED', 'dispatch-' || ?
+				             FROM dealership WHERE external_id = 'DLR-D'
+				           RETURNING id)
+				INSERT INTO reminder (appointment_id, reminder_type, due_at, status, idempotency_key)
+				SELECT id, ?, ?::timestamptz, 'PENDING', gen_random_uuid() FROM a
+				RETURNING id""", Long.class, scheduledAt, type, type, dueAt);
 	}
 
 	private String status(long id) {

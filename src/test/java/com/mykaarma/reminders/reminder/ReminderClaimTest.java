@@ -116,6 +116,22 @@ class ReminderClaimTest {
 	}
 
 	@Test
+	void leaseExpiringOnTheSixthAttempt_parksTheReminderDead_whileTheFifthIsRequeued() {
+		long fifth = reminder("T24H", "PENDING", "now() - interval '2 minutes'");
+		long sixth = reminder("T2H", "PENDING", "now() - interval '1 minute'");
+		jdbc.update("UPDATE reminder SET attempt_count = CASE WHEN id = ? THEN 4 ELSE 5 END WHERE id IN (?, ?)", fifth,
+				fifth, sixth);
+		reminders.claimDue("worker-a");
+		jdbc.update("UPDATE reminder SET lease_expires_at = now() - interval '1 second' WHERE id IN (?, ?)", fifth,
+				sixth);
+
+		assertThat(reminders.releaseExpiredLeases()).containsExactly(sixth);
+		assertThat(jdbc.queryForList("SELECT status FROM reminder WHERE id IN (?, ?) ORDER BY id", String.class,
+				fifth, sixth))
+			.containsExactly("PENDING", "DEAD");
+	}
+
+	@Test
 	void settleFromAWorkerThatLostItsLease_changesNothing() {
 		long id = reminder("T24H", "PENDING", "now() - interval '1 minute'");
 		reminders.claimDue("worker-a");

@@ -635,7 +635,12 @@ second implementation exists.
 | `OK` | 2xx from provider | → `SENT`, terminal |
 | `RETRYABLE` | timeout, 429, 5xx, connection reset | → `PENDING`, `due_at = now() + min(30s·2ⁿ, 15min)`, ±20% jitter |
 | `PERMANENT` | invalid number, unsubscribed, 400 | → `DEAD` immediately. Retrying a malformed phone number 5 times is 5 guaranteed failures. |
-| attempt 6 | anything | → `DEAD` + page. Caps the poison-row blast radius (§9, FM-9). |
+| lease expires on attempt 6 | worker died or hung mid-send, every time | → `DEAD` + page. Caps the poison-row blast radius (§9, FM-9). |
+
+The attempt cap applies only when a lease expires. A row whose sends keep dying won't
+succeed on a seventh try, but a provider outage ends. If `RETRYABLE` counted toward the
+cap, every reminder due in the first ~15 minutes of a longer outage would be dropped for
+good (FM-5). Useful lead time bounds retries instead (§8.3).
 
 ---
 

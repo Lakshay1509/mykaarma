@@ -104,10 +104,10 @@ Goal: reminders actually go out.
 
 ## Phase 4 — Failure handling  *(~3h)*
 
-- [ ] 👤 🧠 Three outcomes: `OK` / `RETRYABLE` / `PERMANENT` — and why permanent never retries
-- [ ] 🤖 Exponential backoff, `min(30s · 2ⁿ, 15min)`, ±20% jitter
-- [ ] 🤖 `attempt_count > 5` → `DEAD` + error log *(poison-row cap)*
-- [ ] 👤 🧠 **Useful-lead-time suppression** *(§8.3 — measure against the appointment, not the reminder)*
+- [x] 👤 🧠 Three outcomes: `OK` / `RETRYABLE` / `PERMANENT` — and why permanent never retries *(exhaustive `switch`; every settle keeps the `claimed_by` guard)*
+- [x] 🤖 Exponential backoff, `min(30s · 2ⁿ, 15min)`, ±20% jitter *(one SQL expression on the DB clock, in `scheduleRetry`)*
+- [x] 🤖 `attempt_count > 5` → `DEAD` + error log *(poison-row cap, applied on lease expiry only and never to `RETRYABLE`; see §7.5)*
+- [x] 👤 🧠 **Useful-lead-time suppression** *(§8.3 — measure against the appointment, not the reminder; checked right before each send, also bounds `RETRYABLE`)*
 - [ ] 🤖 `reminder_attempt` row written per attempt
 - [ ] 🤖 Resilience4j circuit breaker around the sender
 - [ ] 👤 🧠 **Cap in-flight sends at the provider's limit** — per-worker `Semaphore` (Twilio `429` = too many concurrent requests), rate limiter for SES (~14/s default quota); size from config (§6.4)
