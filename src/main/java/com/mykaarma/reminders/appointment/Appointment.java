@@ -13,10 +13,14 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Objects;
 import java.util.UUID;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.SourceType;
 import org.hibernate.annotations.UpdateTimestamp;
 
+// The dispatcher reads the appointments of up to 200 claimed reminders inside its claim
+// transaction: one IN query for the whole batch instead of 200 lookups.
 @Entity
+@BatchSize(size = 200)
 public class Appointment {
 
 	public enum Channel {

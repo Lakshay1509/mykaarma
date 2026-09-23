@@ -46,4 +46,16 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 			          FOR UPDATE SKIP LOCKED)""", nativeQuery = true)
 	void releaseExpiredLeases();
 
+	// Only the worker still holding the claim may settle it. A worker that ran past its
+	// lease has lost the row to the sweeper, and a SENT row never changes again.
+	@Transactional
+	@Modifying
+	@Query(value = """
+			UPDATE reminder
+			   SET status = 'SENT', sent_at = now(), lease_expires_at = NULL
+			 WHERE id = :id
+			   AND status = 'CLAIMED'
+			   AND claimed_by = :workerId""", nativeQuery = true)
+	int markSent(long id, String workerId);
+
 }

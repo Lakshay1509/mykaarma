@@ -58,7 +58,8 @@ class ReminderClaimTest {
 	@Test
 	void claim_leasesOnlyPendingRemindersThatAreDueByTheDatabaseClock() {
 		long due = reminder("T24H", "PENDING", "now() - interval '1 minute'");
-		reminder("T2H", "PENDING", "now() + interval '1 hour'");
+		// A minute out, so a claim reading a node's clock a few minutes fast would take it (§9 FM-7).
+		reminder("T2H", "PENDING", "now() + interval '1 minute'");
 
 		assertThat(reminders.claimDue("worker-a")).hasSize(1);
 		assertThat(jdbc.queryForList("""
@@ -112,6 +113,22 @@ class ReminderClaimTest {
 		assertThat(jdbc.queryForList("SELECT claimed_by FROM reminder WHERE id IN (?, ?) ORDER BY id", String.class,
 				abandoned, inFlight))
 			.containsExactly("worker-b", "worker-a");
+	}
+
+	@Test
+	void settleFromAWorkerThatLostItsLease_changesNothing() {
+		long id = reminder("T24H", "PENDING", "now() - interval '1 minute'");
+		reminders.claimDue("worker-a");
+		jdbc.update("UPDATE reminder SET lease_expires_at = now() - interval '1 second' WHERE id = ?", id);
+		reminders.releaseExpiredLeases();
+		reminders.claimDue("worker-b");
+
+		assertThat(reminders.markSent(id, "worker-a")).isZero();
+		assertThat(reminders.markSent(id, "worker-b")).isOne();
+		assertThat(reminders.markSent(id, "worker-b")).isZero();
+		assertThat(jdbc.queryForObject("SELECT status || ':' || claimed_by FROM reminder WHERE id = ?", String.class,
+				id))
+			.isEqualTo("SENT:worker-b");
 	}
 
 	private long reminder(String type, String status, String dueAt) {

@@ -51,6 +51,14 @@ public class Reminder {
 			.nameUUIDFromBytes((appointment.getPublicId() + ":" + reminderType).getBytes(StandardCharsets.UTF_8));
 	}
 
+	public Long getId() {
+		return id;
+	}
+
+	public Appointment getAppointment() {
+		return appointment;
+	}
+
 	public ReminderType getReminderType() {
 		return reminderType;
 	}

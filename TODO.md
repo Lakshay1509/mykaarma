@@ -88,15 +88,15 @@ Goal: reminders actually go out.
 - [x] 👤 🧠 **The claim query** — `FOR UPDATE SKIP LOCKED`, `ORDER BY due_at`, `LIMIT 200`, lease 60s
 - [x] 👤 🧠 `@Scheduled(fixedDelay = 1000)` dispatcher — **no ShedLock, deliberately**
 - [x] 👤 🧠 Lease sweeper — expired `CLAIMED` → `PENDING` (30s, **no** ShedLock: idempotent + `SKIP LOCKED`, §6.3)
-- [ ] 🤖 `NotificationSender` interface + `LoggingNotificationSender` (masked recipient)
-- [ ] 👤 🧠 Send outside the transaction — claim (TX1) → send → settle (TX2)
-- [ ] 🤖 Message body rendering using `local_tz` *("Tue 2:00 PM", not UTC)*
+- [x] 🤖 `NotificationSender` interface + `LoggingNotificationSender` (masked recipient, measured Twilio/SES latency)
+- [x] 👤 🧠 Send outside the transaction — claim (TX1) → send → settle (TX2) *(batch sent concurrently on virtual threads; settle guarded by `claimed_by`)*
+- [x] 🤖 Message body rendering using `local_tz` *("Tue 2:00 PM", not UTC)*
 - [x] 🤖 `worker.enabled` profile flag — one JAR, two roles
 
 **Acceptance**
 - A due reminder logs a `NOTIFICATION` line and flips to `SENT`
 - Run two app instances → each handles different reminders, none shared
-- `kill -9` a worker mid-send → reminder recovers ~60s later, single logical delivery
+- `kill -9` a worker mid-send → reminder recovers 60–90s later, still one `SENT` row *(rows sent but not yet settled go out twice with the same key, §7.3)*
 
 > 🧠 **The three things you must be able to draw:** why all workers poll at once (`SKIP LOCKED`), why the lease has a timer (a dead worker would hold the row forever), and why the network call is outside the transaction (a slow vendor would eat the whole connection pool).
 
@@ -110,6 +110,7 @@ Goal: reminders actually go out.
 - [ ] 👤 🧠 **Useful-lead-time suppression** *(§8.3 — measure against the appointment, not the reminder)*
 - [ ] 🤖 `reminder_attempt` row written per attempt
 - [ ] 🤖 Resilience4j circuit breaker around the sender
+- [ ] 👤 🧠 **Cap in-flight sends at the provider's limit** — per-worker `Semaphore` (Twilio `429` = too many concurrent requests), rate limiter for SES (~14/s default quota); size from config (§6.4)
 
 **Acceptance**
 - Sender throws timeout → back to `PENDING` with a later `due_at`, `attempt_count` incremented

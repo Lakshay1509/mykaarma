@@ -95,7 +95,7 @@ The two numbers that *do* drive design:
 
 - **31,000 reminders due simultaneously.** Appointments cluster on the hour, so the
   24h-prior reminders cluster on the hour too. Answered by batched claiming (§6.2)
-  and optional deterministic jitter (§6.4) — ~13 seconds to drain, against a 5-minute
+  and optional deterministic jitter (§6.4) — ~1 to 1.5 minutes to drain, against a 5-minute
   SLO.
 - **365M reminder rows/year.** Answered by range partitioning on `due_at` + 13-month
   retention (§10.2), so the working set stays the next 48 hours regardless of history.
@@ -415,16 +415,22 @@ the mechanism that creates the only real duplicate risk, which §7.3 closes.
 
 ### 6.4 The slot-boundary burst
 
-31,000 reminders become due at `09:00:00`. Drain rate:
+31,000 reminders become due at `09:00:00`. Each worker sends a claimed batch
+concurrently on virtual threads (§7.4), so a batch costs its slowest send, not the sum
+of 200. Drain rate, at measured provider latency (§7.4):
 
 ```
-200 rows/claim × 4 threads × 3 workers × 1 poll/s  =  2,400 reminders/sec
-31,000 / 2,400  ≈  13 seconds
+one batch  =  slowest of 200 sends (~0.2s SMS, ~0.5s email) + 1s poll delay  ≈  1.2–1.5s
+200 / 1.2–1.5s × 3 workers  ≈  400–500 reminders/sec
+31,000 / 400–500            ≈  60–80 seconds
 ```
 
-Comfortably inside the 5-minute SLO, with an order of magnitude of headroom before
-anything needs to change. If the *downstream provider* is the bottleneck instead of
-us (Twilio rate limits are real), add deterministic jitter at insert time:
+Inside the 5-minute SLO with about 4× headroom. Sent one at a time, the same batch
+takes 23s (SMS) to 35s (email) and the burst would take 20–30 minutes; the stub's
+realistic latency is what showed this.
+
+If the *downstream provider* is the bottleneck instead of us (Twilio rate limits are
+real), add deterministic jitter at insert time:
 
 ```java
 // spread a slot's reminders over 2 minutes, stable across recomputation
@@ -434,6 +440,16 @@ Instant dueAt  = scheduledAt.minus(type.lead()).minusSeconds(jitterSec);
 
 Deterministic (not random) so a reschedule recomputes the identical value, and
 *earlier* rather than later so the reminder never arrives under its nominal lead time.
+
+**Open: provider limits.** Sending a whole batch at once can exceed what the provider
+accepts. Twilio answers `429` when an account has too many concurrent requests (the
+limit isn't published), and SES rejects anything above the account's send rate, about
+14 emails/sec for a new production account. Today a rejected burst would also come back
+as a burst, since every rejected row waits out the same lease. Planned for Phase 4,
+together with `RETRYABLE` handling and jittered backoff: cap in-flight sends per worker
+at the provider's limit (a `Semaphore` for Twilio, a rate limiter for SES), sized from
+config. At SES's default quota the provider bounds the burst, not the dispatcher:
+31,000 emails at 14/sec is about 37 minutes, so the 10× target needs a raised quota.
 
 ---
 
@@ -506,8 +522,10 @@ take a constraint violation.
 **Layer 2 — the lease (prevents two workers sending concurrently).**
 
 `SKIP LOCKED` + `CLAIMED` + `lease_expires_at` means at most one worker holds a given
-reminder at a time. Concurrent claim is impossible; the only remaining window is
-*sequential* retry after a crash.
+reminder at a time. The same reminder can still be sent twice in two cases: the worker
+crashes between send and settle, or a send outlives its 60s lease and another worker
+re-claims the swept row while the first call is still open. Every sender therefore
+needs a timeout well under the lease.
 
 **Layer 3 — the idempotency key (collapses the crash-retry duplicate).**
 
@@ -529,9 +547,20 @@ UUID key = UUID.nameUUIDFromBytes(
 ```
 
 Stored on the row, computed once, never regenerated. Passed to
-`NotificationSender.send(payload, key)`. Every real provider (Twilio
-`Idempotency-Key`, SES `MessageDeduplicationId`, SendGrid batch ID) dedupes on it,
-so the customer's phone buzzes once.
+`NotificationSender.send(payload, key)`. A provider that deduplicates on a
+caller-supplied key drops the retry. Check each provider before relying on this: SES
+`SendEmail` accepts no idempotency key (`MessageDeduplicationId` is an SQS FIFO
+parameter). With a provider like that, a crash between send and settle reaches the
+customer twice. We measured how many rows that affects by stopping a stub-backed worker
+while a batch was in flight:
+
+| Event mid-batch | Re-sent | Why |
+|---|---|---|
+| `SIGTERM` (deploy, scale-in) | 0 of 4,000 | Spring waits for the running poll, so the batch settles before exit |
+| `kill -9` (OOM, eviction) | 50 of 4,000 | Rows already sent but still queued for a pool connection to settle |
+
+Both runs left one `SENT` row per reminder. The repeated sends carried the same key, so
+they show up in the logs even when the provider can't drop them.
 
 **Why not just mark `SENT` before sending?** Then a crash *before* the send loses the
 reminder permanently, and the row lies. The choice between "might duplicate" and
@@ -541,22 +570,25 @@ what lets us take at-least-once (never lose) and still satisfy F5.
 ### 7.4 The send path, precisely
 
 ```java
-// TX 1 — claim.  Short, bounded, no network I/O inside.
+// TX 1 — claim, and read what the sends need.  Short, bounded, no network I/O inside.
 List<Reminder> batch = reminderRepo.claimDue(workerId, 200);
 
-for (Reminder r : batch) {
-    Long attemptId = attemptRepo.open(r.id(), r.attemptCount(), workerId);  // own TX
+// Every send in the batch starts at once, one virtual thread each (§6.4).
+try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    for (Reminder r : batch) executor.execute(() -> {
+        Long attemptId = attemptRepo.open(r.id(), r.attemptCount(), workerId);  // own TX
 
-    // ── OUTSIDE any transaction.  See the note below. ──
-    SendResult result = sender.send(payloadFor(r), r.idempotencyKey());
+        // ── OUTSIDE any transaction.  See the note below. ──
+        SendResult result = sender.send(payloadFor(r), r.idempotencyKey());
 
-    // TX 2 — settle.
-    switch (result.kind()) {
-        case OK        -> reminderRepo.markSent(r.id(), result.providerRef());
-        case RETRYABLE -> reminderRepo.scheduleRetry(r.id(), backoff(r.attemptCount()));
-        case PERMANENT -> reminderRepo.markDead(r.id(), result.error());
-    }
-    attemptRepo.close(attemptId, result);
+        // TX 2 — settle, only while this worker still holds the claim.
+        switch (result.outcome()) {
+            case OK        -> reminderRepo.markSent(r.id(), workerId);
+            case RETRYABLE -> reminderRepo.scheduleRetry(r.id(), workerId, backoff(r.attemptCount()));
+            case PERMANENT -> reminderRepo.markDead(r.id(), workerId, result.error());
+        }
+        attemptRepo.close(attemptId, result);
+    });
 }
 ```
 
@@ -565,14 +597,18 @@ for (Reminder r : batch) {
 > exhaust a HikariCP pool of 20 and take down the whole service with one slow
 > vendor. The lease — not the transaction — is what protects the row during the call.
 
+Every settle is guarded by `WHERE status = 'CLAIMED' AND claimed_by = :workerId`. A
+worker whose call outlived its 60s lease has lost the row to the sweeper (§6.3), so its
+late write changes nothing. Without the guard, a late `RETRYABLE` could move a row
+another worker had already marked `SENT` back to `PENDING`, and it would go out again.
+
 The stub sender required by the brief:
 
 ```java
 @Component
-@ConditionalOnProperty(name = "app.notifications.sender", havingValue = "logging",
-                       matchIfMissing = true)
 class LoggingNotificationSender implements NotificationSender {
     public SendResult send(NotificationPayload p, UUID idempotencyKey) {
+        Thread.sleep(latency(p.channel(), ThreadLocalRandom.current()));
         log.info("NOTIFICATION channel={} to={} type={} apptId={} idempotencyKey={} body={}",
                  p.channel(), mask(p.recipient()), p.reminderType(),
                  p.appointmentId(), idempotencyKey, p.body());
@@ -581,8 +617,16 @@ class LoggingNotificationSender implements NotificationSender {
 }
 ```
 
-Recipients are masked in logs (`+1415•••0137`) — PII doesn't belong in an
-aggregated log store.
+Recipients are masked in logs (`+1415•••0137`, `a•••@example.com`) — PII doesn't
+belong in an aggregated log store.
+
+The stub sleeps for as long as a real provider takes to accept the request, so
+dispatcher timing in tests and the demo matches production. The delay is drawn from
+a log-normal fitted to measured acceptance times ([Knock benchmarks](https://knock.app/sms-api-benchmarks/twilio),
+June to September 2026): SMS uses Twilio's p50 114ms / p99 176ms, and email uses
+[Amazon SES](https://knock.app/email-api-benchmarks/aws-ses)'s p50 162ms / p99 426ms.
+There is no switch for choosing a sender yet; add `@ConditionalOnProperty` when a
+second implementation exists.
 
 ### 7.5 Retry policy
 
@@ -678,13 +722,13 @@ vehicles into adjacent slots.
 | # | Failure | Detection | Response | Residual risk |
 |---|---|---|---|---|
 | FM-1 | Provider times out | `SendResult.RETRYABLE` | Backoff retry, same idempotency key | Provider may have delivered; key dedupes it |
-| FM-2 | Worker killed mid-send (OOM, eviction, deploy) | `lease_expires_at` passes | Sweeper → `PENDING` → re-claim | One extra provider call, collapsed by key |
+| FM-2 | Worker killed mid-send (OOM, eviction) | `lease_expires_at` passes | Sweeper → `PENDING` → re-claim, 60–90s later | Rows sent but not yet settled go out again with the same key; collapsed only where the provider dedupes (§7.3). A graceful deploy re-sends none. |
 | FM-3 | DB failover mid-transaction | Connection error | TX rolls back; nothing committed; row stays `PENDING` | None — atomicity holds |
 | FM-4 | DB unreachable for N minutes | Health check red | API returns `503` (fail fast, don't queue in memory); dispatch pauses and catches up | Reminders late, not lost. §8.3 suppresses the ones that went stale. |
 | FM-5 | Provider hard-down for hours | Error-rate alert | Backoff caps at 15 min; circuit breaker trips to stop hammering | Reminders inside their useful window still go out on recovery |
 | FM-6 | Duplicate `POST` (client retry) | `uq_appt_idem` violation | Return the original `200` | None |
 | FM-7 | **Clock skew between app nodes** | — | **All time comparisons use DB `now()`.** App clocks are never authoritative for due-ness. | None. A node 4 minutes fast would otherwise fire every reminder early. |
-| FM-8 | Slot-boundary thundering herd | `reminder_lag` spike | Batched claim (§6.2) + optional jitter (§6.4) | ~13s drain vs 5-min SLO |
+| FM-8 | Slot-boundary thundering herd | `reminder_lag` spike | Batched claim (§6.2), concurrent sends (§7.4) + optional jitter (§6.4) | ~60–80s drain vs 5-min SLO |
 | FM-9 | Poison row (crashes the worker every time) | `attempt_count > 5` | → `DEAD` + page | One row parked, pipeline unblocked |
 | FM-10 | Connection pool exhausted | HikariCP timeout metric | Network I/O is outside transactions (§7.4); pool sized in §10.3 | — |
 | FM-11 | Noisy neighbour: one dealership bulk-loads 100k appointments | Per-tenant claim-share metric | `ORDER BY due_at` is naturally FIFO-fair; add per-tenant token bucket if it bites | Monitored; not pre-solved |
@@ -726,7 +770,7 @@ Supporting metrics: `reminders_sent_total{type,channel,outcome}`,
 | Resource | Size | Reasoning |
 |---|---|---|
 | API nodes | 3 × 2 vCPU | 70 peak TPS is ~2% utilisation; 3 is for AZ redundancy, not load |
-| Worker nodes | 3 × 2 vCPU, 4 dispatch threads | 2,400 reminders/sec capacity vs 11.6/sec average |
+| Worker nodes | 3 × 2 vCPU, one poll loop each, sends on virtual threads | ~400–500 reminders/sec capacity vs 11.6/sec average |
 | Postgres | 1 primary (4 vCPU / 32 GB) + sync standby + async read replica | Working set = next 48h of reminders ≈ 3 GB, fits in RAM |
 | Connection pool | API 15 each, worker 10 each = **75 total** | Under a 100-connection cap; **PgBouncer in transaction mode** before adding nodes — Postgres degrades badly past a few hundred connections |
 | Storage | 300 GB provisioned | ~200 GB/yr with 13-month retention |
