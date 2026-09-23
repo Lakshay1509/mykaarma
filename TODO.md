@@ -108,9 +108,9 @@ Goal: reminders actually go out.
 - [x] 🤖 Exponential backoff, `min(30s · 2ⁿ, 15min)`, ±20% jitter *(one SQL expression on the DB clock, in `scheduleRetry`)*
 - [x] 🤖 `attempt_count > 5` → `DEAD` + error log *(poison-row cap, applied on lease expiry only and never to `RETRYABLE`; see §7.5)*
 - [x] 👤 🧠 **Useful-lead-time suppression** *(§8.3 — measure against the appointment, not the reminder; checked right before each send, also bounds `RETRYABLE`)*
-- [ ] 🤖 `reminder_attempt` row written per attempt
-- [ ] 🤖 Resilience4j circuit breaker around the sender
-- [ ] 👤 🧠 **Cap in-flight sends at the provider's limit** — per-worker `Semaphore` (Twilio `429` = too many concurrent requests), rate limiter for SES (~14/s default quota); size from config (§6.4)
+- [x] 🤖 `reminder_attempt` row written per attempt *(opened before the send, closed after the settle; skipped reminders get none)*
+- [x] ~~🤖 Resilience4j circuit breaker around the sender~~ *(deferred: the stub sender can't fail, and backoff plus useful lead time already get reminders through an outage; listed in §15 "With another week")*
+- [x] 👤 🧠 **Cap in-flight sends at the provider's limit** — per-worker `Semaphore` (Twilio `429` = too many concurrent requests), rate limiter for SES (~14/s default quota); size from config (§6.4) *(one `Semaphore` per channel; the SES rate limiter is deferred, see the note in `application.properties`)*
 
 **Acceptance**
 - Sender throws timeout → back to `PENDING` with a later `due_at`, `attempt_count` incremented
@@ -175,7 +175,7 @@ Goal: reminders actually go out.
 
 ## Phase 8 — Ship  *(~3h)*
 
-- [ ] 👤 🧠 **README** — how to run, design decisions, next week, open questions *(brief point 8)*
+- [ ] 👤 🧠 **README** — how to run, design decisions, next week *(start from §15)*, open questions *(brief point 8)*
 - [ ] 👤 Design diagram — export §3 of the design doc *(Excalidraw or Mermaid)*
 - [ ] 🤖 `demo.http` / Postman collection with every call in order
 - [ ] 🤖 `POST /test/advance-clock` (dev profile only) so the video doesn't wait 24h

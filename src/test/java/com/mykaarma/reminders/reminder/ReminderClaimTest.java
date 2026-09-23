@@ -116,12 +116,14 @@ class ReminderClaimTest {
 	}
 
 	@Test
-	void leaseExpiringOnTheSixthAttempt_parksTheReminderDead_whileTheFifthIsRequeued() {
+	void sixthSendToDieMidFlight_parksTheReminderDead_whileTheFifthIsRequeued() {
 		long fifth = reminder("T24H", "PENDING", "now() - interval '2 minutes'");
 		long sixth = reminder("T2H", "PENDING", "now() - interval '1 minute'");
-		jdbc.update("UPDATE reminder SET attempt_count = CASE WHEN id = ? THEN 4 ELSE 5 END WHERE id IN (?, ?)", fifth,
-				fifth, sixth);
+		closedAttempts(fifth, 4, "ABANDONED");
+		closedAttempts(sixth, 5, "ABANDONED");
 		reminders.claimDue("worker-a");
+		reminders.openAttempt(fifth, "worker-a");
+		reminders.openAttempt(sixth, "worker-a");
 		jdbc.update("UPDATE reminder SET lease_expires_at = now() - interval '1 second' WHERE id IN (?, ?)", fifth,
 				sixth);
 
@@ -129,6 +131,20 @@ class ReminderClaimTest {
 		assertThat(jdbc.queryForList("SELECT status FROM reminder WHERE id IN (?, ?) ORDER BY id", String.class,
 				fifth, sixth))
 			.containsExactly("PENDING", "DEAD");
+	}
+
+	@Test
+	void crashAfterManyRetriesAndUnsentClaims_requeuesTheReminder() {
+		long id = reminder("T24H", "PENDING", "now() - interval '1 minute'");
+		jdbc.update("UPDATE reminder SET attempt_count = 12 WHERE id = ?", id);
+		closedAttempts(id, 6, "RETRYABLE");
+		reminders.claimDue("worker-a");
+		reminders.openAttempt(id, "worker-a");
+		jdbc.update("UPDATE reminder SET lease_expires_at = now() - interval '1 second' WHERE id = ?", id);
+
+		assertThat(reminders.releaseExpiredLeases()).isEmpty();
+		assertThat(jdbc.queryForObject("SELECT status FROM reminder WHERE id = ?", String.class, id))
+			.isEqualTo("PENDING");
 	}
 
 	@Test
@@ -152,6 +168,12 @@ class ReminderClaimTest {
 				INSERT INTO reminder (appointment_id, reminder_type, due_at, status, idempotency_key)
 				VALUES (?, ?, %s, ?, gen_random_uuid()) RETURNING id""".formatted(dueAt), Long.class, appointmentId,
 				type, status);
+	}
+
+	private void closedAttempts(long reminderId, int count, String outcome) {
+		jdbc.update("""
+				INSERT INTO reminder_attempt (reminder_id, attempt_no, worker_id, finished_at, outcome)
+				SELECT ?, n, 'worker-x', now(), ? FROM generate_series(1, ?) n""", reminderId, outcome, count);
 	}
 
 	private static void await(CountDownLatch latch) {

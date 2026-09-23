@@ -33,14 +33,18 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
 	// No ShedLock, because every worker can run this safely: a released row no longer
 	// matches, and SKIP LOCKED keeps two sweeps from waiting on each other (§6.3).
-	// The attempt cap lives here and not in scheduleRetry. A send that keeps dying
-	// mid-flight won't succeed on a seventh try (§9 FM-9), but a provider outage ends,
-	// and a reminder that is still useful should keep retrying until it does (FM-5).
+	// Counts only sends that died mid-flight: attempts never closed, or closed ABANDONED
+	// because the worker lost the row first. Those won't succeed on a seventh try (§9 FM-9).
+	// attempt_count would also count RETRYABLE answers, and a reminder that is still useful
+	// should keep retrying until the outage ends (FM-5).
 	@Transactional
 	@Query(value = """
 			WITH released AS (
 			     UPDATE reminder
-			        SET status = CASE WHEN attempt_count > 5 THEN 'DEAD' ELSE 'PENDING' END,
+			        SET status = CASE WHEN (SELECT count(*) FROM reminder_attempt a
+			                                 WHERE a.reminder_id = reminder.id
+			                                   AND (a.outcome IS NULL OR a.outcome = 'ABANDONED')) > 5
+			                          THEN 'DEAD' ELSE 'PENDING' END,
 			            claimed_by = NULL, lease_expires_at = NULL
 			      WHERE id IN (
 			            SELECT id
@@ -65,13 +69,14 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 	int markSent(long id, String workerId);
 
 	// The claim has already counted this attempt, so attempt_count - 1 makes the first
-	// retry wait 30s (§7.5).
+	// retry wait 30s (§7.5). The exponent is capped too: from attempt 40, about nine
+	// hours into an outage, 30s · 2ⁿ overflows interval before least() can clamp it.
 	@Transactional
 	@Modifying
 	@Query(value = """
 			UPDATE reminder
 			   SET status = 'PENDING', claimed_by = NULL, lease_expires_at = NULL, last_error = :error,
-			       due_at = now() + least(interval '30 seconds' * power(2, attempt_count - 1), interval '15 minutes')
+			       due_at = now() + least(interval '30 seconds' * power(2, least(attempt_count - 1, 5)), interval '15 minutes')
 			                        * (0.8 + random() * 0.4)
 			 WHERE id = :id
 			   AND status = 'CLAIMED'
@@ -97,5 +102,29 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 			   AND status = 'CLAIMED'
 			   AND claimed_by = :workerId""", nativeQuery = true)
 	void markSkipped(long id, String workerId);
+
+	// Also renews the lease, so a send that queued for a slot still gets the full 60s.
+	// Returns null if the sweeper gave the row to another worker while it queued.
+	@Transactional
+	@Query(value = """
+			WITH renewed AS (
+			     UPDATE reminder
+			        SET lease_expires_at = now() + interval '60 seconds'
+			      WHERE id = :reminderId
+			        AND status = 'CLAIMED'
+			        AND claimed_by = :workerId
+			  RETURNING id, attempt_count)
+			INSERT INTO reminder_attempt (reminder_id, attempt_no, worker_id)
+			SELECT id, attempt_count, :workerId FROM renewed
+			RETURNING id""", nativeQuery = true)
+	Long openAttempt(long reminderId, String workerId);
+
+	@Transactional
+	@Modifying
+	@Query(value = """
+			UPDATE reminder_attempt
+			   SET finished_at = now(), outcome = :outcome, provider_ref = :providerRef, error = :error
+			 WHERE id = :id""", nativeQuery = true)
+	void closeAttempt(long id, String outcome, String providerRef, String error);
 
 }

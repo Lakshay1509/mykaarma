@@ -7,6 +7,7 @@ import com.mykaarma.reminders.notification.NotificationPayload;
 import com.mykaarma.reminders.notification.NotificationSender;
 import com.mykaarma.reminders.notification.SendResult;
 import com.mykaarma.reminders.notification.SendResult.Outcome;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,22 @@ class SendOutcomeTest {
 			.containsEntry("last_error", "timeout")
 			.containsEntry("claimed_by", null)
 			.containsEntry("backed_off", true);
+		assertThat(attempts(id)).containsExactly("3:RETRYABLE:timeout");
+	}
+
+	@Test
+	void timeoutHoursIntoAnOutage_stillBacksOff_atTheFifteenMinuteCap() throws InterruptedException {
+		long id = dueReminder("+14155550137", 45);
+
+		awaitSettled(id, 45);
+
+		assertThat(jdbc.queryForMap("""
+				SELECT status, attempt_count,
+				       due_at BETWEEN now() + interval '12 minutes' AND now() + interval '18 minutes' AS capped
+				  FROM reminder WHERE id = ?""", id))
+			.containsEntry("status", "PENDING")
+			.containsEntry("attempt_count", 46)
+			.containsEntry("capped", true);
 	}
 
 	@Test
@@ -65,6 +82,7 @@ class SendOutcomeTest {
 			.containsEntry("status", "DEAD")
 			.containsEntry("attempt_count", 1)
 			.containsEntry("last_error", "invalid number");
+		assertThat(attempts(id)).containsExactly("1:PERMANENT:invalid number");
 	}
 
 	private long dueReminder(String phone, int attemptsSoFar) {
@@ -87,9 +105,17 @@ class SendOutcomeTest {
 		}
 	}
 
+	// Also waits for the attempt row, which the dispatcher closes just after the settle.
 	private boolean settled(long id, int attemptsSoFar) {
-		return jdbc.queryForObject("SELECT attempt_count > ? AND status <> 'CLAIMED' FROM reminder WHERE id = ?",
-				Boolean.class, attemptsSoFar, id);
+		return jdbc.queryForObject("""
+				SELECT attempt_count > ? AND status <> 'CLAIMED'
+				       AND NOT EXISTS (SELECT 1 FROM reminder_attempt WHERE reminder_id = r.id AND finished_at IS NULL)
+				  FROM reminder r WHERE id = ?""", Boolean.class, attemptsSoFar, id);
+	}
+
+	private List<String> attempts(long id) {
+		return jdbc.queryForList("SELECT attempt_no || ':' || outcome || ':' || error FROM reminder_attempt WHERE reminder_id = ?",
+				String.class, id);
 	}
 
 	@TestConfiguration(proxyBeanMethods = false)

@@ -441,14 +441,19 @@ Instant dueAt  = scheduledAt.minus(type.lead()).minusSeconds(jitterSec);
 Deterministic (not random) so a reschedule recomputes the identical value, and
 *earlier* rather than later so the reminder never arrives under its nominal lead time.
 
-**Open: provider limits.** Sending a whole batch at once can exceed what the provider
+**Provider limits.** Sending a whole batch at once can exceed what the provider
 accepts. Twilio answers `429` when an account has too many concurrent requests (the
 limit isn't published), and SES rejects anything above the account's send rate, about
-14 emails/sec for a new production account. Today a rejected burst would also come back
-as a burst, since every rejected row waits out the same lease. Planned for Phase 4,
-together with `RETRYABLE` handling and jittered backoff: cap in-flight sends per worker
-at the provider's limit (a `Semaphore` for Twilio, a rate limiter for SES), sized from
-config. At SES's default quota the provider bounds the burst, not the dispatcher:
+14 emails/sec for a new production account. Each worker caps its in-flight sends per
+channel with a `Semaphore` sized from config (`app.sender.max-in-flight.*`), and a
+rejected send comes back `RETRYABLE`, so jittered backoff spreads the retries out. The
+cap is per worker, so it is set to the account's limit divided by the number of
+workers. SES's limit is a rate, which a concurrency cap only approximates
+(rate ≈ cap / latency); a rate limiter for email is the upgrade if SES throttles. A
+send renews its lease when it gets a slot, so the lease times the send, not the wait.
+One that waits out its whole first lease finds the row handed on and drops it instead
+of sending it twice; keep 200 / cap × the slowest send under 60s to avoid that churn.
+At SES's default quota the provider bounds the burst, not the dispatcher:
 31,000 emails at 14/sec is about 37 minutes, so the 10× target needs a raised quota.
 
 ---
@@ -635,12 +640,15 @@ second implementation exists.
 | `OK` | 2xx from provider | → `SENT`, terminal |
 | `RETRYABLE` | timeout, 429, 5xx, connection reset | → `PENDING`, `due_at = now() + min(30s·2ⁿ, 15min)`, ±20% jitter |
 | `PERMANENT` | invalid number, unsubscribed, 400 | → `DEAD` immediately. Retrying a malformed phone number 5 times is 5 guaranteed failures. |
-| lease expires on attempt 6 | worker died or hung mid-send, every time | → `DEAD` + page. Caps the poison-row blast radius (§9, FM-9). |
+| 6th send dies mid-flight | worker died, or the send outlived its lease, every time | → `DEAD` + page. Caps the poison-row blast radius (§9, FM-9). |
 
 The attempt cap applies only when a lease expires. A row whose sends keep dying won't
 succeed on a seventh try, but a provider outage ends. If `RETRYABLE` counted toward the
 cap, every reminder due in the first ~15 minutes of a longer outage would be dropped for
-good (FM-5). Useful lead time bounds retries instead (§8.3).
+good (FM-5). So the cap counts sends, not claims: `reminder_attempt` rows left open by a
+dead worker, or closed `ABANDONED` because the worker lost the row before it could
+settle. A `RETRYABLE` answer, or a claim whose lease ran out while it waited for a send
+slot, doesn't count. Useful lead time bounds retries instead (§8.3).
 
 ---
 
