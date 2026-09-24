@@ -30,6 +30,8 @@ public class Reminder {
 	@Enumerated(EnumType.STRING)
 	private ReminderType reminderType;
 
+	private int appointmentVersion;
+
 	private Instant dueAt;
 
 	@Enumerated(EnumType.STRING)
@@ -43,12 +45,15 @@ public class Reminder {
 	public Reminder(Appointment appointment, ReminderType reminderType, Instant now) {
 		this.appointment = appointment;
 		this.reminderType = reminderType;
+		this.appointmentVersion = appointment.getVersion();
 		this.dueAt = reminderType.dueAt(appointment.getScheduledAt());
-		// Booked inside the lead time: as PENDING it would fire at once, e.g. "your
-		// appointment is tomorrow" three hours before it (§8.2).
+		// Booked or moved inside the lead time: as PENDING it would fire at once, e.g.
+		// "your appointment is tomorrow" three hours before it (§8.2).
 		this.status = dueAt.isBefore(now) ? Status.SKIPPED_LATE : Status.PENDING;
-		this.idempotencyKey = UUID
-			.nameUUIDFromBytes((appointment.getPublicId() + ":" + reminderType).getBytes(StandardCharsets.UTF_8));
+		// The version is part of the key, or a provider that dedupes would drop a
+		// rescheduled reminder as a repeat of the first one.
+		this.idempotencyKey = UUID.nameUUIDFromBytes(
+				(appointment.getPublicId() + ":" + reminderType + ":" + appointmentVersion).getBytes(StandardCharsets.UTF_8));
 	}
 
 	public Long getId() {

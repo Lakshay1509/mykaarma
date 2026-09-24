@@ -6,13 +6,17 @@ import com.mykaarma.reminders.reminder.ReminderType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -62,6 +66,65 @@ public class AppointmentService {
 			return replay(original.get(), candidate);
 		}
 		Instant now = clock.instant();
+		checkBookable(request.scheduledAt(), dealership.getTimezone(), now);
+		try {
+			return new Booking(transactions.execute(tx -> {
+				Appointment saved = appointments.saveAndFlush(candidate);
+				remind(saved, now);
+				return saved;
+			}), true);
+		}
+		catch (DataIntegrityViolationException e) {
+			// A concurrent retry of this booking inserted first. The unique constraint
+			// made this insert wait for it, so its row is committed: answer as a replay.
+			return replay(appointments.findByDealershipAndIdempotencyKey(dealership, idempotencyKey)
+				.orElseThrow(() -> e), candidate);
+		}
+	}
+
+	public Appointment find(UUID id) {
+		return appointments.findByPublicId(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No appointment with id " + id));
+	}
+
+	@Transactional
+	public void cancel(UUID id) {
+		Appointment appointment = find(id);
+		appointment.cancel();
+		reminders.cancelUnsent(appointment.getId());
+	}
+
+	@Transactional
+	public Appointment reschedule(UUID id, int version, OffsetDateTime requested) {
+		Appointment appointment = find(id);
+		if (appointment.getVersion() != version) {
+			throw new OptimisticLockingFailureException("Version " + version + " is stale");
+		}
+		if (appointment.getStatus() != Appointment.Status.BOOKED) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT,
+					"Only a booked appointment can be rescheduled; this one is " + appointment.getStatus());
+		}
+		Instant scheduledAt = requested.toInstant().truncatedTo(ChronoUnit.MICROS);
+		// Nothing moved, so the customer has nothing new to hear about.
+		if (scheduledAt.equals(appointment.getScheduledAt())) {
+			return appointment;
+		}
+		Instant now = clock.instant();
+		checkBookable(requested, appointment.getLocalTz(), now);
+		appointment.reschedule(scheduledAt);
+		// Flushed first so the new pair is written under the version this change creates.
+		appointments.flush();
+		reminders.cancelUnsent(appointment.getId());
+		remind(appointment, now);
+		return appointment;
+	}
+
+	private void remind(Appointment appointment, Instant now) {
+		reminders.saveAll(Stream.of(ReminderType.values()).map(type -> new Reminder(appointment, type, now)).toList());
+	}
+
+	private static void checkBookable(OffsetDateTime requested, ZoneId zone, Instant now) {
+		Instant scheduledAt = requested.toInstant();
 		if (!scheduledAt.isAfter(now)) {
 			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "scheduledAt must be in the future");
 		}
@@ -71,23 +134,9 @@ public class AppointmentService {
 		// The offset must be one the dealership's timezone uses on that date. This rejects
 		// 02:30 on spring-forward night (§8.1), and a client that sends -06:00 all year
 		// for Chicago, which would book summer appointments an hour late.
-		ZoneId zone = dealership.getTimezone();
-		if (!zone.getRules().isValidOffset(request.scheduledAt().toLocalDateTime(), request.scheduledAt().getOffset())) {
-			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "scheduledAt " + request.scheduledAt()
+		if (!zone.getRules().isValidOffset(requested.toLocalDateTime(), requested.getOffset())) {
+			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "scheduledAt " + requested
 					+ " is not a local time in " + zone + ": wrong offset for that date, or inside a DST gap");
-		}
-		try {
-			return new Booking(transactions.execute(tx -> {
-				Appointment saved = appointments.saveAndFlush(candidate);
-				reminders.saveAll(Stream.of(ReminderType.values()).map(type -> new Reminder(saved, type, now)).toList());
-				return saved;
-			}), true);
-		}
-		catch (DataIntegrityViolationException e) {
-			// A concurrent retry of this booking inserted first. The unique constraint
-			// made this insert wait for it, so its row is committed: answer as a replay.
-			return replay(appointments.findByDealershipAndIdempotencyKey(dealership, idempotencyKey)
-				.orElseThrow(() -> e), candidate);
 		}
 	}
 

@@ -61,10 +61,10 @@ Goal: `POST /appointments` persists a booking. No reminders yet.
 Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 
 - [x] 🤖 Flyway `V2__reminder.sql` — `reminder` + `reminder_attempt` + the two partial indexes
-- [x] 👤 🧠 **`UNIQUE (appointment_id, reminder_type)`** — write this line yourself
+- [x] 👤 🧠 **`UNIQUE (appointment_id, reminder_type)`** — write this line yourself *(widened with `appointment_version` in V3, see Phase 5)*
 - [x] 👤 🧠 `due_at` = `scheduledAt.minus(lead)` on an `Instant` *(§6.1 — DST-correct by construction)*
 - [x] 👤 🧠 Past-due at creation → `SKIPPED_LATE`, not `PENDING` *(§8.2 — the 3-hours-notice case)*
-- [x] 🤖 Deterministic idempotency key — name-based UUID (v3) from `(public_id, reminder_type)`
+- [x] 🤖 Deterministic idempotency key — name-based UUID (v3) from `(public_id, reminder_type)` *(plus `appointment_version` since V3)*
 - [x] 🤖 Reminders inserted **in the same transaction** as the appointment
 - [x] 🤖 `GET /v1/appointments/{id}/reminders` *(the proof endpoint + demo shot)*
 
@@ -77,7 +77,7 @@ Goal: booking an appointment writes two reminder rows. Nothing sends yet.
 ### ⏸️ Checkpoint A
 - [ ] `./mvnw test` green
 - [ ] Walk the schema out loud: every column, why it exists, what breaks without it
-- [ ] Send the reschedule question email *(draft is in our chat — §14 Q2)*
+- [x] Send the reschedule question email *(answered: a rescheduled customer gets reminders for the new time — §14 Q2)*
 
 ---
 
@@ -122,21 +122,21 @@ Goal: reminders actually go out.
 
 ## Phase 5 — Lifecycle  *(~2h)*
 
-- [ ] 🤖 `DELETE /v1/appointments/{id}` — pending reminders → `CANCELLED`
-- [ ] 🤖 `PATCH /v1/appointments/{id}` — reschedule, `If-Match: <version>`
-- [ ] 👤 🧠 Reschedule recomputes `due_at` and **reuses the Phase 2 past-check** (one rule, two callers)
-- [ ] 👤 🧠 Already-`SENT` reminders are never re-sent or reopened
-- [ ] 🤖 `409` on version mismatch; `409` on rescheduling a cancelled appointment
+- [x] 🤖 `DELETE /v1/appointments/{id}` — pending reminders → `CANCELLED` *(`PENDING` and `CLAIMED`, one conditional `UPDATE`, so a row a worker just marked `SENT` is left alone)*
+- [x] 🤖 `PATCH /v1/appointments/{id}` — reschedule, `If-Match: <version>` *(`version` is now in the response; the version-mismatch `409` came with it)*
+- [x] 👤 🧠 Reschedule writes a **fresh pair for the new time** through the **same constructor as booking**, so the Phase 2 past-check applies to both (one rule, two callers) *(unsent old reminders → `CANCELLED`; V3 widens the key to `(appointment_id, reminder_type, appointment_version)` — client confirmed re-notifying on reschedule, §14 Q2)*
+- [x] 👤 🧠 Already-`SENT` reminders are never re-sent or reopened *(the old row stays `SENT`; the new-time reminder is a new row with its own idempotency key)*
+- [x] 🤖 `409` on version mismatch; `409` on rescheduling a cancelled appointment *(anything not `BOOKED`; rescheduling to the same time is a no-op `200`, so nobody is re-reminded for nothing)*
 
 **Acceptance**
 - Cancel → pending reminders `CANCELLED`, sent ones untouched
-- Reschedule +3 days → pending `due_at` values move, sent ones don't
-- Reschedule to 1h from now → both pending reminders become `SKIPPED_LATE`
+- Reschedule +3 days → unsent reminders `CANCELLED`, a new `PENDING` pair for the new time, sent ones untouched
+- Reschedule to 1h from now → both new reminders are `SKIPPED_LATE`
 
 ### ⏸️ Checkpoint B
-- [ ] Full happy path works end to end by hand
-- [ ] All four lifecycle transitions verified in `psql`
-- [ ] Push to GitHub — you should have something demoable even if you stopped here
+- [x] Full happy path works end to end by hand *(`docker compose up`: book → replay → T2H `SENT` on time → reschedule → stale `409` → cancel → `409`)*
+- [x] All four lifecycle transitions verified in `psql` *(skipped-late at booking, sent, rescheduled into a v1 pair, cancelled; duplicate query → 0 rows)*
+- [x] Push to GitHub — you should have something demoable even if you stopped here
 
 ---
 

@@ -97,6 +97,15 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 	@Modifying
 	@Query(value = """
 			UPDATE reminder
+			   SET status = 'CANCELLED', lease_expires_at = NULL
+			 WHERE appointment_id = :appointmentId
+			   AND status IN ('PENDING', 'CLAIMED')""", nativeQuery = true)
+	void cancelUnsent(long appointmentId);
+
+	@Transactional
+	@Modifying
+	@Query(value = """
+			UPDATE reminder
 			   SET status = 'SKIPPED_LATE', lease_expires_at = NULL
 			 WHERE id = :id
 			   AND status = 'CLAIMED'

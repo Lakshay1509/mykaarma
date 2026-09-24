@@ -103,6 +103,18 @@ public class Appointment {
 				&& Objects.equals(serviceType, other.serviceType) && Objects.equals(scheduledAt, other.scheduledAt);
 	}
 
+	void cancel() {
+		this.status = Status.CANCELLED;
+	}
+
+	void reschedule(Instant scheduledAt) {
+		this.scheduledAt = scheduledAt;
+	}
+
+	public Long getId() {
+		return id;
+	}
+
 	public UUID getPublicId() {
 		return publicId;
 	}
@@ -153,6 +165,10 @@ public class Appointment {
 
 	public String getIdempotencyKey() {
 		return idempotencyKey;
+	}
+
+	public int getVersion() {
+		return version;
 	}
 
 }

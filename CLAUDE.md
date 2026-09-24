@@ -61,8 +61,9 @@ job and no hydration step (§4.2).
 Breaking any of these breaks the assignment. Do not "simplify" them without reading
 the linked section first.
 
-1. **`UNIQUE (appointment_id, reminder_type)`** stays on `reminder`. This constraint
-   *is* the no-duplicates requirement (§7.3). Nothing transitions out of `SENT`.
+1. **`UNIQUE (appointment_id, reminder_type, appointment_version)`** stays on `reminder`.
+   This constraint *is* the no-duplicates requirement (§7.3). Nothing transitions out of
+   `SENT`. A reschedule writes a new pair under the new version, never reopens a row (§8.4).
 2. **Never hold a transaction across a `NotificationSender` call.** One slow vendor
    would exhaust the connection pool and take down the API too (§9 FM-10).
 3. **The dispatcher has no ShedLock and must not get one.** All workers poll
@@ -73,7 +74,7 @@ the linked section first.
 5. **`due_at` arithmetic happens on `Instant`**, never on `ZonedDateTime`/`LocalDateTime`.
    Elapsed-time subtraction is DST-correct by construction; calendar math is not (§6.1).
 6. **The idempotency key is deterministic** — name-based UUID (v3, `UUID.nameUUIDFromBytes`)
-   of `(public_id, reminder_type)`, computed once and stored. Never regenerate it on retry; that defeats its purpose (§7.3).
+   of `(public_id, reminder_type, appointment_version)`, computed once and stored. Never regenerate it on retry; that defeats its purpose (§7.3).
 7. **Partial indexes stay partial.** `WHERE status = 'PENDING'` is what keeps the claim
    query flat as the table grows past 100M rows (§4).
 8. **Reminders due in the past at creation time are `SKIPPED_LATE`, not `PENDING`.**

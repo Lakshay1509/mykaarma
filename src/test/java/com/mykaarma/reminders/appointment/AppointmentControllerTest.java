@@ -244,6 +244,78 @@ class AppointmentControllerTest {
 			.isEqualTo("scheduledAt must be in the future");
 	}
 
+	@Test
+	void cancel_stopsUnsentRemindersButLeavesSentOnesAlone() {
+		String location = post(VALID).getResponse().getHeader("Location");
+		jdbc.update("""
+				UPDATE reminder SET status = 'SENT'
+				WHERE reminder_type = 'T24H' AND appointment_id = (SELECT id FROM appointment WHERE idempotency_key = 'key-1')""");
+
+		assertThat(mvc.delete().uri(location)).hasStatus(HttpStatus.NO_CONTENT);
+
+		assertThat(mvc.get().uri(location)).bodyJson().extractingPath("$.status").isEqualTo("CANCELLED");
+		assertThat(reminderRows()).containsExactly("T24H SENT 2026-11-30T20:00:00Z", "T2H CANCELLED 2026-12-01T18:00:00Z");
+	}
+
+	@Test
+	void reschedule_movesTheAppointment_thenRejectsTheStaleVersion() {
+		String location = post(VALID).getResponse().getHeader("Location");
+		String moved = """
+				{"scheduledAt": "2026-12-04T09:30:00-06:00"}""";
+
+		assertThat(patch(location, "0", moved)).hasStatusOk().bodyJson().isLenientlyEqualTo("""
+				{"version": 1, "scheduledAt": "2026-12-04T15:30:00Z", "localTime": "2026-12-04T09:30:00-06:00"}""");
+		assertThat(patch(location, "0", moved)).hasStatus(HttpStatus.CONFLICT);
+	}
+
+	@Test
+	void reschedule_remindsForTheNewTime_andLeavesTheSentOneSent() {
+		String location = post(VALID).getResponse().getHeader("Location");
+		jdbc.update("""
+				UPDATE reminder SET status = 'SENT'
+				WHERE reminder_type = 'T24H' AND appointment_id = (SELECT id FROM appointment WHERE idempotency_key = 'key-1')""");
+
+		assertThat(patch(location, "0", """
+				{"scheduledAt": "2026-12-04T14:00:00-06:00"}""")).hasStatusOk();
+
+		assertThat(reminderRows()).containsExactly("T24H SENT 2026-11-30T20:00:00Z", "T2H CANCELLED 2026-12-01T18:00:00Z",
+				"T24H PENDING 2026-12-03T20:00:00Z", "T2H PENDING 2026-12-04T18:00:00Z");
+		assertThat(jdbc.queryForObject("""
+				SELECT count(DISTINCT r.idempotency_key) FROM reminder r JOIN appointment a ON a.id = r.appointment_id
+				WHERE a.idempotency_key = 'key-1'""", Integer.class)).isEqualTo(4);
+	}
+
+	@Test
+	void rescheduleToOneHourAway_skipsBothNewReminders_likeAShortNoticeBooking() {
+		String location = post(VALID).getResponse().getHeader("Location");
+
+		assertThat(patch(location, "0", """
+				{"scheduledAt": "2026-09-21T08:00:00-05:00"}""")).hasStatusOk();
+
+		assertThat(reminderRows()).containsExactly("T24H SKIPPED_LATE 2026-09-20T13:00:00Z",
+				"T2H SKIPPED_LATE 2026-09-21T11:00:00Z", "T24H CANCELLED 2026-11-30T20:00:00Z",
+				"T2H CANCELLED 2026-12-01T18:00:00Z");
+	}
+
+	@Test
+	void rescheduleToTheSameTime_remindsNobodyAgain() {
+		String location = post(VALID).getResponse().getHeader("Location");
+
+		assertThat(patch(location, "0", VALID)).hasStatusOk().bodyJson().extractingPath("$.version").isEqualTo(0);
+
+		assertThat(reminderRows()).containsExactly("T24H PENDING 2026-11-30T20:00:00Z", "T2H PENDING 2026-12-01T18:00:00Z");
+	}
+
+	@Test
+	void reschedulingACancelledAppointment_isAConflict() {
+		String location = post(VALID).getResponse().getHeader("Location");
+		mvc.delete().uri(location).exchange();
+
+		assertThat(patch(location, "1", """
+				{"scheduledAt": "2026-12-04T14:00:00-06:00"}""")).hasStatus(HttpStatus.CONFLICT);
+		assertThat(reminderRows()).containsOnly("T24H CANCELLED 2026-11-30T20:00:00Z", "T2H CANCELLED 2026-12-01T18:00:00Z");
+	}
+
 	private List<String> reminderRows() {
 		return jdbc.queryForList("""
 				SELECT r.reminder_type || ' ' || r.status || ' ' || to_char(r.due_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
@@ -253,6 +325,15 @@ class AppointmentControllerTest {
 
 	private MvcTestResult post(String body) {
 		return post(body, "key-1");
+	}
+
+	private MvcTestResult patch(String location, String version, String body) {
+		return mvc.patch()
+			.uri(location)
+			.header("If-Match", version)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(body)
+			.exchange();
 	}
 
 	private MvcTestResult post(String body, String idempotencyKey) {

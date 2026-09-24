@@ -1,10 +1,14 @@
 package com.mykaarma.reminders;
 
 import java.util.List;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -30,6 +34,12 @@ class ProblemDetailsAdvice extends ResponseEntityExceptionHandler {
 			.toList();
 		ex.getBody().setProperty("errors", errors);
 		return super.handleHandlerMethodValidationException(ex, headers, status, request);
+	}
+
+	@ExceptionHandler(OptimisticLockingFailureException.class)
+	ProblemDetail versionConflict() {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+				"The appointment changed since you read it. Fetch it again and retry with its current version.");
 	}
 
 }

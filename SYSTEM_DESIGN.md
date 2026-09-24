@@ -11,7 +11,7 @@
    `SELECT … FOR UPDATE SKIP LOCKED`. One index, one query, no second source of truth,
    and reschedule/cancel stay a plain `UPDATE`.
 2. **"Never twice" is a database constraint, not a code path.**
-   `UNIQUE (appointment_id, reminder_type)` makes a duplicate physically unrepresentable.
+   `UNIQUE (appointment_id, reminder_type, appointment_version)` makes a duplicate physically unrepresentable.
    Everything else — leases, idempotency keys, attempt logs — is about not *losing* one.
 3. **10× is not a throughput problem.** 500k/day is 5.8 writes/sec average. The actual
    design constraints are (a) ~31,000 reminders falling due in the *same second* at
@@ -201,6 +201,7 @@ CREATE TABLE reminder (
     due_at           TIMESTAMPTZ NOT NULL,
     status           VARCHAR(16) NOT NULL,    -- see §7.2
     idempotency_key  UUID        NOT NULL,    -- deterministic, see §7.3
+    appointment_version INT      NOT NULL DEFAULT 0,  -- which schedule this pair is for, §8.4
     attempt_count    SMALLINT    NOT NULL DEFAULT 0,
     claimed_by       VARCHAR(64),
     lease_expires_at TIMESTAMPTZ,
@@ -209,7 +210,7 @@ CREATE TABLE reminder (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- ◄── THIS LINE IS REQUIREMENT F5 ──────────────────────────────
-    CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type),
+    CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type, appointment_version),
     CONSTRAINT ck_reminder_type   CHECK (reminder_type IN ('T24H','T2H')),
     -- A misspelt status would fall outside the partial indexes and never send.
     CONSTRAINT ck_reminder_status CHECK (status IN
@@ -470,7 +471,7 @@ that from a send that failed. Any design claiming otherwise is hand-waving.
 
 What **is** achievable, and what this design guarantees:
 
-> For every `(appointment, reminder_type)` pair, the system performs **at most one
+> For every `(appointment, reminder_type, appointment version)`, the system performs **at most one
 > successful, committed send**, and any repeated attempt carries an identical
 > idempotency key so the downstream provider collapses it.
 
@@ -499,7 +500,7 @@ that it's enforced by a constraint, not by discipline.
                   (terminal)                (alert)               (alert)
 
    appointment CANCELLED    → PENDING/CLAIMED ⇒ CANCELLED   (SENT untouched)
-   appointment RESCHEDULED  → PENDING.due_at recomputed      (SENT untouched)
+   appointment RESCHEDULED  → PENDING/CLAIMED ⇒ CANCELLED, new pair for the new time (SENT untouched)
    now() past usefulness    → SKIPPED_LATE                   (§8.3)
 ```
 
@@ -511,10 +512,10 @@ that it's enforced by a constraint, not by discipline.
 **Layer 1 — the constraint (prevents duplicates in storage).**
 
 ```sql
-CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type)
+CONSTRAINT uq_reminder UNIQUE (appointment_id, reminder_type, appointment_version)
 ```
 
-There is exactly one row per (appointment, type). `SENT` is therefore a single bit
+There is exactly one row per (appointment, type, appointment version). `SENT` is therefore a single bit
 per reminder, not a countable event. Two "sent" records for the same reminder cannot
 exist in the database — not "shouldn't", *cannot*. Any code path that tried would
 take a constraint violation.
@@ -546,9 +547,9 @@ worker claims ──► sender.send() succeeds ──► 💥 worker dies before
 The fix is that the second send is byte-identical to the first, including its key:
 
 ```java
-// Name-based UUID (v3, stdlib) — a pure function of (appointment, type). Same input, same UUID, forever.
+// Name-based UUID (v3, stdlib) — a pure function of (appointment, type, version). Same input, same UUID, forever.
 UUID key = UUID.nameUUIDFromBytes(
-        (appointment.publicId() + ":" + reminderType).getBytes(UTF_8));
+        (appointment.publicId() + ":" + reminderType + ":" + appointmentVersion).getBytes(UTF_8));
 ```
 
 Stored on the row, computed once, never regenerated. Passed to
@@ -706,15 +707,15 @@ sending nothing** — it actively confuses the customer and generates a support 
 |---|---|
 | Cancel | `PENDING`/`CLAIMED` → `CANCELLED`. Already-`SENT` rows untouched — you cannot unsend. |
 | Cancel racing with dispatch | A `CLAIMED` reminder may still be sent; the cancel `UPDATE` blocks on the lease row. Accepted: a stale reminder for a just-cancelled appointment is a minor annoyance, and the alternative (transactionally coordinating with an in-flight external call) is not achievable. Documented, not hidden. |
-| Reschedule, both reminders `PENDING` | Recompute both `due_at` values. §8.2's past-check re-applies, so moving an appointment to 1 hour from now marks both `SKIPPED_LATE`. |
-| Reschedule after T24H already `SENT` | The `SENT` row stays `SENT`. **No second 24h reminder.** This is the strict reading of F5. |
+| Reschedule | Unsent reminders (`PENDING`/`CLAIMED`) → `CANCELLED`, and a fresh pair is written for the new time under the appointment's new version. It goes through the same constructor as booking, so §8.2's past-check re-applies: moving an appointment to 1 hour from now writes both as `SKIPPED_LATE`. |
+| Reschedule after T24H already `SENT` | The `SENT` row stays `SENT`; the customer also gets a T24H for the new time. That's new information, not a repeat — confirmed by the client (§14, Q2). |
+| Reschedule to the same time | No-op, `200`. Nothing new to tell the customer, so no new pair. |
 | Reschedule after cancellation | `409` — a cancelled appointment is terminal. |
 
-> **Open question** (§14, Q2): arguably a customer *should* be re-notified when their
-> appointment moves — that's new information, not a repeat. The upgrade path is to
-> widen the unique key to `(appointment_id, reminder_type, schedule_version)` and bump
-> `schedule_version` on reschedule; F5 still holds within a version. Not implemented
-> because the brief's wording is absolute and the simpler key is the safer default.
+> **Why this still satisfies F5.** "Never twice" holds per appointment version: the key
+> is `(appointment_id, reminder_type, appointment_version)`, and the version is in the
+> idempotency key too, so a provider that dedupes doesn't swallow the new pair. A
+> reschedule racing an in-flight send is the same accepted race as cancel.
 
 ### 8.5 Duplicate appointments
 
@@ -770,8 +771,8 @@ Supporting metrics: `reminders_sent_total{type,channel,outcome}`,
 
 - **Invariant check** — the F5 receipt, run in prod *and* in CI:
   ```sql
-  SELECT appointment_id, reminder_type, count(*)
-    FROM reminder GROUP BY 1,2 HAVING count(*) > 1;          -- must be 0 rows
+  SELECT appointment_id, reminder_type, appointment_version, count(*)
+    FROM reminder GROUP BY 1,2,3 HAVING count(*) > 1;          -- must be 0 rows
   ```
 - **Orphan check** — `BOOKED` appointments missing a reminder row (should be
   impossible given §4.2's single transaction; verifying it is cheap).
@@ -809,7 +810,7 @@ Everything up to 1,000 TPS is a config change. That's the point of the design.
 
 The brief says *provable*. Four independent artifacts, strongest first:
 
-**1. The constraint.** `UNIQUE (appointment_id, reminder_type)` — a duplicate is not
+**1. The constraint.** `UNIQUE (appointment_id, reminder_type, appointment_version)` — a duplicate is not
 merely unlikely, it is unrepresentable. This is the proof; the rest is evidence that
 the surrounding code respects it.
 
@@ -932,7 +933,7 @@ Documented rather than silently assumed. Each has a stated default so nothing bl
 | # | Question | Assumed default |
 |---|---|---|
 | Q1 | Is "24 hours before" exact elapsed time, or "the day before at a fixed hour" (e.g. 6 PM)? Many dealer systems do the latter to avoid 3 AM sends. | Exact 24h. |
-| Q2 | After a reschedule, should an already-sent reminder be re-sent for the new time? (§8.4) | No. Upgrade path documented. |
+| Q2 | After a reschedule, should an already-sent reminder be re-sent for the new time? (§8.4) | **Answered: yes.** A fresh pair per appointment version. |
 | Q3 | Quiet hours — suppress or shift a reminder that lands at 2 AM local? | Column present, enforcement off by default. |
 | Q4 | Booked inside the window — send an immediate confirmation instead of skipping? (§8.2) | Skip, don't substitute. |
 | Q5 | SMS *and* email, or one preferred channel? | One channel per appointment; the data model supports both. |
