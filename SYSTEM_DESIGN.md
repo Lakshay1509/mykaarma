@@ -854,9 +854,14 @@ the lease clock, re-run the dispatcher, assert: two *attempts* in
 one `SENT` row. This demonstrates the at-least-once → effectively-once collapse
 explicitly, rather than asserting it in prose.
 
-**4. The invariant query in CI.** After a randomised 10,000-appointment workload with
-injected failures, the §10.2 duplicate query must return zero rows. A receipt anyone
-can re-run — including in the demo video.
+**4. The randomised workload.** 10,000 appointments (20,000 reminders) go through ten
+workers and a provider that times out on 10% of calls and kills the worker mid-send on
+2%. The test asserts that no reminder is left unfinished, that each key the provider
+accepted belongs to exactly one `SENT` row, and that every call carried a stored key.
+It ends with the §10.2 duplicate query. That query groups by the `UNIQUE` columns, so it
+cannot return rows while the constraint exists. It is the receipt anyone can re-run,
+including in the demo video. `ReminderSchemaTest` proves the constraint rejects a
+duplicate.
 
 Also covered: DST boundary `due_at` computation, short-notice `SKIPPED_LATE`,
 useful-lead suppression, idempotent `POST` replay, cancel-clears-pending,

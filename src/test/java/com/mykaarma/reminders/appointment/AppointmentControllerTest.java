@@ -160,6 +160,20 @@ class AppointmentControllerTest {
 	}
 
 	@Test
+	void localTimeRepeatedByFallBack_isBookedAtTheInstantItsOffsetNames() {
+		assertThat(post(VALID.replace("2026-12-01T14:00:00-06:00", "2026-11-01T01:30:00-05:00"), "key-cdt"))
+			.hasStatus(HttpStatus.CREATED)
+			.bodyJson()
+			.isLenientlyEqualTo("""
+					{"scheduledAt": "2026-11-01T06:30:00Z", "localTime": "2026-11-01T01:30:00-05:00"}""");
+		assertThat(post(VALID.replace("2026-12-01T14:00:00-06:00", "2026-11-01T01:30:00-06:00"), "key-cst"))
+			.hasStatus(HttpStatus.CREATED)
+			.bodyJson()
+			.isLenientlyEqualTo("""
+					{"scheduledAt": "2026-11-01T07:30:00Z", "localTime": "2026-11-01T01:30:00-06:00"}""");
+	}
+
+	@Test
 	void offsetTheDealershipIsNotOnThatDay_isRejected() {
 		// Chicago is on -05:00 in July, so 14:00-06:00 would be stored as 15:00 local.
 		assertThat(post(VALID.replace("2026-12-01T14:00:00-06:00", "2027-07-01T14:00:00-06:00")))

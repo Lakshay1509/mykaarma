@@ -144,11 +144,11 @@ Goal: reminders actually go out.
 
 - [x] 👤 🧠 **`tenWorkersRacingOneReminder_sendExactlyOnce`** — the most important test in the repo *(`DispatcherConcurrencyTest`: ten `Dispatcher`s, own `workerId` each, released by one barrier; asserts one send and `attempt_count = 1`)*
 - [x] 👤 🧠 **Crash test** — sender records then throws; expire lease; assert 2 attempts, same key, **1** `SENT` *(in `DispatcherConcurrencyTest`: the first worker's send throws after the provider has the message; once the lease is expired, a second worker sweeps and resends. Goes red if the key is regenerated per claim)*
-- [ ] 👤 DST tests — Mar 8 2026 spring-forward, Nov 1 2026 fall-back, nonexistent local time → `422`
-- [ ] 🤖 Idempotent-`POST` test, cancel test, reschedule test
-- [ ] 🤖 Randomised 10k-appointment workload with injected failures
-- [ ] 🤖 CI invariant check: the duplicate-detection `GROUP BY … HAVING count(*) > 1` returns **0 rows**
-- [ ] 👤 Confirm every test runs on **Testcontainers Postgres** — grep the repo for `h2`, expect nothing
+- [x] 👤 DST tests — Mar 8 2026 spring-forward, Nov 1 2026 fall-back, nonexistent local time → `422` *(Spring-forward is covered by `ReminderTypeTest`. The `422` test uses the 2027 gap, since Mar 8 2026 is already in the past for the frozen test clock. Fall-back books 01:30 at -05:00 and at -06:00 and gets two instants an hour apart; it goes red if the service resolves the local time by zone and ignores the offset)*
+- [x] 🤖 Idempotent-`POST` test, cancel test, reschedule test *(already in `AppointmentControllerTest` from Phases 1 and 5: `retryWithSameKey_…`, `sameKeyWithDifferentDetails_isRejected`, `cancel_stopsUnsentRemindersButLeavesSentOnesAlone`, `reschedule_remindsForTheNewTime_andLeavesTheSentOneSent`, `rescheduleToOneHourAway_…`)*
+- [x] 🤖 Randomised 10k-appointment workload with injected failures *(`DispatcherConcurrencyTest#randomWorkload…`: 20k reminders, ten workers, 10% timeouts and 2% crashes mid-send; asserts nothing is left unfinished, each accepted key has exactly one `SENT` row, and every call carries a stored key. Goes red with a sweeper that never frees crashed rows (419 stuck) or a timeout settled as `SENT`)*
+- [x] 🤖 CI invariant check: the duplicate-detection `GROUP BY … HAVING count(*) > 1` returns **0 rows** *(the workload test's last assertion. It groups by the `UNIQUE` columns, so it can't return rows while the constraint exists; `ReminderSchemaTest#secondReminderOfTheSameType_isRejectedByTheDatabase` proves the constraint fires)*
+- [x] 👤 Confirm every test runs on **Testcontainers Postgres** — grep the repo for `h2`, expect nothing *(no H2 in any build or config file or in the 151 resolved test dependencies; the one hit in code is `HH24` in a SQL date format. Every `@SpringBootTest` imports `TestcontainersConfiguration`, and the tests without it touch no database)*
 
 **Acceptance**
 - `./mvnw test` green
@@ -164,7 +164,7 @@ Goal: reminders actually go out.
 - [ ] 👤 🧠 **`reminder_lag_seconds`** gauge — oldest overdue pending reminder
 - [ ] 🤖 Counters: `reminders_sent_total{type,outcome}`, `_dead_`, `_skipped_late_`, send-duration histogram
 - [ ] 🤖 Liveness/readiness probes
-- [ ] 🤖 Nightly invariant + orphan check jobs (ShedLock)
+- [x] ~~🤖 Nightly invariant + orphan check jobs (ShedLock)~~ *(cut: the duplicate query can't return rows while `uq_reminder` exists, and the orphan check looks for what the booking transaction already prevents, which `failedReminderInsert_leavesNoAppointmentBehind` tests. Neither is worth adding ShedLock and a migration for. §10.2 keeps them as production jobs)*
 
 **Acceptance**
 - Stop the workers for 2 minutes → `reminder_lag_seconds` climbs, then returns to ~0 on restart
