@@ -11,7 +11,7 @@ docker compose up -d          # add --build only if you changed code
 curl localhost:8080/actuator/health
 ```
 
-- Terminal 1 (logs): `docker compose logs -f app | grep --line-buffered NOTIFICATION`
+- Terminal 1 (logs): `docker compose logs -f app | grep --line-buffered -E 'APPOINTMENT|NOTIFICATION'`
 - Terminal 2: everything below
 - Browser: <http://localhost:9090> (Prometheus)
 

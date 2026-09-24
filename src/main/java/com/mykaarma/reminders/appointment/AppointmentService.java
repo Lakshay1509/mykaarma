@@ -12,6 +12,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -22,6 +24,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AppointmentService {
+
+	private static final Logger log = LoggerFactory.getLogger(AppointmentService.class);
 
 	private static final Duration MAX_LEAD = Duration.ofDays(365);
 
@@ -68,11 +72,16 @@ public class AppointmentService {
 		Instant now = clock.instant();
 		checkBookable(request.scheduledAt(), dealership.getTimezone(), now);
 		try {
-			return new Booking(transactions.execute(tx -> {
+			Appointment booked = transactions.execute(tx -> {
 				Appointment saved = appointments.saveAndFlush(candidate);
 				remind(saved, now);
 				return saved;
-			}), true);
+			});
+			// After the commit, so a booking that rolled back never shows up. No contact
+			// details: PII stays out of aggregated logs.
+			log.info("APPOINTMENT created id={} dealership={} at={} channel={}", booked.getPublicId(),
+					dealership.getExternalId(), booked.getScheduledAt().atZone(booked.getLocalTz()), booked.getChannel());
+			return new Booking(booked, true);
 		}
 		catch (DataIntegrityViolationException e) {
 			// A concurrent retry of this booking inserted first. The unique constraint

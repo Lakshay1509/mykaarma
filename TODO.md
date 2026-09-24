@@ -175,7 +175,7 @@ Goal: reminders actually go out.
 
 ## Phase 8 — Ship  *(~3h)*
 
-- [ ] 👤 🧠 **README** — how to run, design decisions, next week *(start from §15)*, open questions *(brief point 8)*
+- [x] 👤 🧠 **README** — how to run, design decisions, next week *(start from §15)*, open questions *(brief point 8)* *(README is the entry point: guarantee, run, prove, architecture diagram, one-line decisions, open questions, next week. Detail lives in `docs/`: `proof.md` (measured re-sends, tests broken on purpose, failure modes with their tests), `design-decisions.md` (lifecycle diagram, reasoning, known limits), `api.md`)*
 - [ ] 👤 Design diagram — export §3 of the design doc *(Excalidraw or Mermaid)*
 - [ ] 🤖 `demo.http` / Postman collection with every call in order
 - [ ] 🤖 `POST /test/advance-clock` (dev profile only) so the video doesn't wait 24h
