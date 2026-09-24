@@ -6,6 +6,7 @@ import com.mykaarma.reminders.TestcontainersConfiguration;
 import com.mykaarma.reminders.notification.NotificationSender;
 import com.mykaarma.reminders.notification.SendResult;
 import com.mykaarma.reminders.notification.SendResult.Outcome;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -164,7 +165,7 @@ class DispatcherConcurrencyTest {
 	}
 
 	private Dispatcher worker(NotificationSender vendor) {
-		return new Dispatcher(reminders, vendor, transactions, clock, 1, 1);
+		return new Dispatcher(reminders, vendor, transactions, clock, new SimpleMeterRegistry(), 1, 1);
 	}
 
 	private long dueReminder() {

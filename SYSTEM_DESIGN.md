@@ -764,10 +764,11 @@ The age of the oldest reminder that should already have gone out. It catches a
 crashed dispatcher, a wedged provider, a slow query, and a lock pile-up — **one
 number, all four.** Alert at `> 300s` (the SLO).
 
-Supporting metrics: `reminders_sent_total{type,channel,outcome}`,
-`send_duration_seconds` histogram, `claim_batch_size`, `reminders_dead_total`,
-`reminders_skipped_late_total` (should be near-zero; a spike means we lost time),
-`appointments_created_total{dealership}`.
+Supporting metrics: `reminder_send_seconds{type,channel,outcome}`, a histogram whose
+`_count` is the sends counter, `reminders_dead_total{reason}` (`crashes` pages, FM-9;
+`permanent` is a bad number), and `reminders_skipped_late_total` (should be near-zero;
+a spike means we lost time). `claim_batch_size` and `appointments_created_total{dealership}`
+are not built yet.
 
 ### 10.2 Nightly jobs (ShedLock-guarded singletons)
 

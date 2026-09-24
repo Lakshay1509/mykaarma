@@ -7,6 +7,8 @@ services:
       POSTGRES_PASSWORD: reminders
     ports:
       - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # survives `down`; only `down -v` wipes it
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U reminders"]
       interval: 2s
@@ -18,9 +20,32 @@ services:
     environment:
       DB_HOST: postgres
       SPRING_PROFILES_ACTIVE: dev   # loads the demo dealerships
-      APP_WORKER_ENABLED: "true"    # locally, one node is both API and worker
+      APP_WORKER_ENABLED: ${APP_WORKER_ENABLED:-true}   # one node is API and worker; set false to watch lag climb
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    configs:
+      - source: prometheus
+        target: /etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+configs:
+  prometheus:
+    content: |
+      scrape_configs:
+        - job_name: appointment-reminders
+          metrics_path: /actuator/prometheus
+          scrape_interval: 5s   # the 1m default would hide a two-minute lag demo
+          static_configs:
+            - targets: ["app:8080"]
+
+volumes:
+  pgdata:

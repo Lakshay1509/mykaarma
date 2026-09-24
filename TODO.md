@@ -160,10 +160,10 @@ Goal: reminders actually go out.
 
 ## Phase 7 — Operations  *(~2h)*
 
-- [ ] 🤖 Micrometer + `/actuator/prometheus`
-- [ ] 👤 🧠 **`reminder_lag_seconds`** gauge — oldest overdue pending reminder
-- [ ] 🤖 Counters: `reminders_sent_total{type,outcome}`, `_dead_`, `_skipped_late_`, send-duration histogram
-- [ ] 🤖 Liveness/readiness probes
+- [x] 🤖 Micrometer + `/actuator/prometheus` *(the actuator starter already brings Micrometer, so this is the Prometheus registry plus exposing `health,prometheus`. Nothing else on `/actuator` is served)*
+- [x] 👤 🧠 **`reminder_lag_seconds`** gauge — oldest overdue pending reminder *(`ReminderRepository#lagSeconds`, registered on every node rather than in the `Dispatcher`, so it keeps reporting when every worker is down. `ReminderLagTest` goes red if the `PENDING` filter goes or `min` becomes `max`. A retry moves `due_at` forward, so a provider that fails fast shows in the error-rate counters, not here)*
+- [x] 🤖 Counters: `reminders_sent_total{type,outcome}`, `_dead_`, `_skipped_late_`, send-duration histogram *(one `reminder_send_seconds{type,channel,outcome}` timer: its `_count` is the sends counter, so nothing separate can drift from it. `reminders_dead_total{reason=crashes|permanent}`, because only crashes should page. `reminders_skipped_late_total` counts only the dispatcher's skip, not short-notice bookings skipped at creation. Every increment uses the number of rows the update changed, so a worker that lost its claim adds nothing. `DispatcherTest` and `SendOutcomeTest` go red without the increments)*
+- [x] 🤖 Liveness/readiness probes *(nothing to write: `management.endpoint.health.probes.enabled=true` already serves both. They deliberately leave the database out: a DB outage would otherwise pull every pod from the load balancer at once, and clients would get connection errors instead of the `503` FM-4 promises. Overall `/actuator/health` still goes red)*
 - [x] ~~🤖 Nightly invariant + orphan check jobs (ShedLock)~~ *(cut: the duplicate query can't return rows while `uq_reminder` exists, and the orphan check looks for what the booking transaction already prevents, which `failedReminderInsert_leavesNoAppointmentBehind` tests. Neither is worth adding ShedLock and a migration for. §10.2 keeps them as production jobs)*
 
 **Acceptance**

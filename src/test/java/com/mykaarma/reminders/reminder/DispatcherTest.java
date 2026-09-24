@@ -3,6 +3,7 @@ package com.mykaarma.reminders.reminder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mykaarma.reminders.TestcontainersConfiguration;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,9 +23,12 @@ class DispatcherTest {
 
 	private final JdbcTemplate jdbc;
 
+	private final MeterRegistry registry;
+
 	@Autowired
-	DispatcherTest(JdbcTemplate jdbc) {
+	DispatcherTest(JdbcTemplate jdbc, MeterRegistry registry) {
 		this.jdbc = jdbc;
+		this.registry = registry;
 	}
 
 	@AfterEach
@@ -78,6 +82,7 @@ class DispatcherTest {
 				t24h))
 			.containsExactly("SKIPPED_LATE", "SENT");
 		assertThat(output).doesNotContain("type=T2H");
+		assertThat(registry.get("reminders.skipped.late").counter().count()).isEqualTo(1);
 	}
 
 	private long reminder(String type, String scheduledAt, String dueAt) {

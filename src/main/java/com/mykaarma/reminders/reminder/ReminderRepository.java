@@ -11,6 +11,15 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
 	List<Reminder> findByAppointmentOrderByDueAt(Appointment appointment);
 
+	// §10.1. A retry moves due_at forward, so a provider that keeps failing fast doesn't
+	// raise this; the send error rate shows it.
+	@Query(value = """
+			SELECT coalesce(extract(epoch FROM now() - min(due_at)), 0)::float8
+			  FROM reminder
+			 WHERE status = 'PENDING'
+			   AND due_at <= now()""", nativeQuery = true)
+	double lagSeconds();
+
 	// Every worker runs this at once (§6.2): SKIP LOCKED hands each one different rows.
 	// due_at is compared to the database's now(), never the app's clock (§9 FM-7).
 	@Transactional
@@ -112,7 +121,7 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 			 WHERE id = :id
 			   AND status = 'CLAIMED'
 			   AND claimed_by = :workerId""", nativeQuery = true)
-	void markSkipped(long id, String workerId);
+	int markSkipped(long id, String workerId);
 
 	// Also renews the lease, so a send that queued for a slot still gets the full 60s.
 	// Returns null if the sweeper gave the row to another worker while it queued.

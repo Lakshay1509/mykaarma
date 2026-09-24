@@ -7,6 +7,7 @@ import com.mykaarma.reminders.notification.NotificationPayload;
 import com.mykaarma.reminders.notification.NotificationSender;
 import com.mykaarma.reminders.notification.SendResult;
 import com.mykaarma.reminders.notification.SendResult.Outcome;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -27,9 +28,12 @@ class SendOutcomeTest {
 
 	private final JdbcTemplate jdbc;
 
+	private final MeterRegistry registry;
+
 	@Autowired
-	SendOutcomeTest(JdbcTemplate jdbc) {
+	SendOutcomeTest(JdbcTemplate jdbc, MeterRegistry registry) {
 		this.jdbc = jdbc;
+		this.registry = registry;
 	}
 
 	@AfterEach
@@ -83,6 +87,8 @@ class SendOutcomeTest {
 			.containsEntry("attempt_count", 1)
 			.containsEntry("last_error", "invalid number");
 		assertThat(attempts(id)).containsExactly("1:PERMANENT:invalid number");
+		assertThat(registry.get("reminder.send").tag("outcome", "PERMANENT").timer().count()).isEqualTo(1);
+		assertThat(registry.get("reminders.dead").tag("reason", "permanent").counter().count()).isEqualTo(1);
 	}
 
 	private long dueReminder(String phone, int attemptsSoFar) {

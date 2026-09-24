@@ -5,7 +5,12 @@ import com.mykaarma.reminders.appointment.Appointment.Channel;
 import com.mykaarma.reminders.notification.NotificationPayload;
 import com.mykaarma.reminders.notification.NotificationSender;
 import com.mykaarma.reminders.notification.SendResult;
+import com.mykaarma.reminders.notification.SendResult.Outcome;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -42,8 +47,18 @@ class Dispatcher {
 
 	private final Map<Channel, Semaphore> inFlight;
 
+	private final MeterRegistry registry;
+
+	private final Counter skippedLate;
+
+	// Separate reasons because only crashes should page (§9 FM-9). Permanent failures are
+	// invalid numbers or unsubscribed customers.
+	private final Counter deadPermanent;
+
+	private final Counter deadAfterCrashes;
+
 	Dispatcher(ReminderRepository reminders, NotificationSender sender, TransactionTemplate transactions,
-			Clock clock, @Value("${app.sender.max-in-flight.sms}") int maxSms,
+			Clock clock, MeterRegistry registry, @Value("${app.sender.max-in-flight.sms}") int maxSms,
 			@Value("${app.sender.max-in-flight.email}") int maxEmail) {
 		this.reminders = reminders;
 		this.sender = sender;
@@ -54,6 +69,10 @@ class Dispatcher {
 					"app.sender.max-in-flight.* must be at least 1: 0 stalls every send, it doesn't turn a channel off");
 		}
 		this.inFlight = Map.of(Channel.SMS, new Semaphore(maxSms), Channel.EMAIL, new Semaphore(maxEmail));
+		this.registry = registry;
+		this.skippedLate = registry.counter("reminders.skipped.late");
+		this.deadPermanent = registry.counter("reminders.dead", "reason", "permanent");
+		this.deadAfterCrashes = registry.counter("reminders.dead", "reason", "crashes");
 	}
 
 	// No ShedLock, and none should be added: every worker polls at once and SKIP LOCKED
@@ -73,8 +92,9 @@ class Dispatcher {
 
 	@Scheduled(fixedDelay = 30_000)
 	void sweep() {
-		reminders.releaseExpiredLeases()
-			.forEach(id -> log.error("Reminder {} is DEAD: its sends keep dying before they settle", id));
+		List<Long> dead = reminders.releaseExpiredLeases();
+		dead.forEach(id -> log.error("Reminder {} is DEAD: its sends keep dying before they settle", id));
+		deadAfterCrashes.increment(dead.size());
 	}
 
 	// Deliberately outside any transaction. A vendor that hangs for 30s would otherwise
@@ -93,7 +113,7 @@ class Dispatcher {
 				// Checked after the wait for a slot, which is long when the provider is slow.
 				if (!clock.instant().isBefore(claimed.usefulUntil())) {
 					log.warn("Reminder {} skipped: too close to the appointment to help", claimed.id());
-					reminders.markSkipped(claimed.id(), workerId);
+					skippedLate.increment(reminders.markSkipped(claimed.id(), workerId));
 					return;
 				}
 				// Opened before the send, so a worker that dies mid-call still leaves a row with
@@ -104,7 +124,9 @@ class Dispatcher {
 					log.warn("Reminder {} not sent: its lease ran out while it waited for a send slot", claimed.id());
 					return;
 				}
+				Timer.Sample sample = Timer.start(registry);
 				result = sender.send(claimed.payload(), claimed.idempotencyKey());
+				sample.stop(sendTimer(claimed.payload(), result.outcome()));
 			}
 			finally {
 				permits.release();
@@ -114,7 +136,11 @@ class Dispatcher {
 				case RETRYABLE -> reminders.scheduleRetry(claimed.id(), workerId, result.error());
 				// An invalid number or an unsubscribed customer fails the same way on every
 				// try, so retrying only adds provider calls (§7.5).
-				case PERMANENT -> reminders.markDead(claimed.id(), workerId, result.error());
+				case PERMANENT -> {
+					int marked = reminders.markDead(claimed.id(), workerId, result.error());
+					deadPermanent.increment(marked);
+					yield marked;
+				}
 			};
 			// Whatever the provider said, a worker that lost the row records ABANDONED, so a
 			// send that keeps outliving its lease still counts toward the crash cap.
@@ -128,6 +154,18 @@ class Dispatcher {
 		catch (RuntimeException ex) {
 			log.error("Reminder {} was not settled; it is retried once its lease expires", claimed.id(), ex);
 		}
+	}
+
+	// Its count is the sends counter. Buckets run from the providers' measured p50 and p99
+	// up to the 60s lease, since a send slower than the lease can go out twice.
+	private Timer sendTimer(NotificationPayload payload, Outcome outcome) {
+		return Timer.builder("reminder.send")
+			.tag("type", payload.reminderType().name())
+			.tag("channel", payload.channel().name())
+			.tag("outcome", outcome.name())
+			.serviceLevelObjectives(Duration.ofMillis(100), Duration.ofMillis(250), Duration.ofMillis(500),
+					Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(60))
+			.register(registry);
 	}
 
 	private static Claimed claimed(Reminder reminder) {

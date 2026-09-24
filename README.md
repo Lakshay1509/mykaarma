@@ -9,9 +9,12 @@ before), delivered **at most once**, provably.
 ## Run
 
 ```bash
-docker compose up -d          # Postgres 16 + app
+docker compose up -d          # Postgres 16 + app + Prometheus; the DB survives `down`, only `down -v` wipes it
+./seed.sh                     # demo appointments through the API; each run adds a batch
 curl localhost:8080/actuator/health
 ```
+
+Prometheus is at <http://localhost:9090>; try `reminder_lag_seconds`.
 
 Local runs load three demo dealerships: `DLR-0042` (Chicago), `DLR-0007` (New York),
 `DLR-0105` (Phoenix, no DST).
