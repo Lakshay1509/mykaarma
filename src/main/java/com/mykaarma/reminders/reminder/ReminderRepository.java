@@ -58,13 +58,15 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
 	// Only the worker still holding the claim may settle it. A worker that ran past its
 	// lease has lost the row to the sweeper, and a SENT row never changes again.
+	// CANCELLED is allowed because a cancel or reschedule can land while the message is
+	// already with the provider. It was delivered, so the row has to say SENT.
 	@Transactional
 	@Modifying
 	@Query(value = """
 			UPDATE reminder
 			   SET status = 'SENT', sent_at = now(), lease_expires_at = NULL
 			 WHERE id = :id
-			   AND status = 'CLAIMED'
+			   AND status IN ('CLAIMED', 'CANCELLED')
 			   AND claimed_by = :workerId""", nativeQuery = true)
 	int markSent(long id, String workerId);
 

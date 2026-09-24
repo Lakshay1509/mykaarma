@@ -504,8 +504,10 @@ that it's enforced by a constraint, not by discipline.
    now() past usefulness    → SKIPPED_LATE                   (§8.3)
 ```
 
-`SENT`, `DEAD`, `SKIPPED_LATE` and `CANCELLED` are terminal. Nothing transitions
-*out* of `SENT` — that is the invariant the whole design protects.
+`SENT`, `DEAD`, `SKIPPED_LATE` and `CANCELLED` are terminal, with one exception: a
+`CANCELLED` row whose message was already with the provider settles `SENT`, because it
+was delivered (§8.4). Nothing transitions *out* of `SENT`; that is the invariant the
+whole design protects.
 
 ### 7.3 The three layers
 
@@ -706,7 +708,7 @@ sending nothing** — it actively confuses the customer and generates a support 
 | Event | Effect |
 |---|---|
 | Cancel | `PENDING`/`CLAIMED` → `CANCELLED`. Already-`SENT` rows untouched — you cannot unsend. |
-| Cancel racing with dispatch | A `CLAIMED` reminder may still be sent; the cancel `UPDATE` blocks on the lease row. Accepted: a stale reminder for a just-cancelled appointment is a minor annoyance, and the alternative (transactionally coordinating with an in-flight external call) is not achievable. Documented, not hidden. |
+| Cancel racing with dispatch | The claim transaction has committed before the send, so nothing blocks the cancel. It marks the `CLAIMED` row `CANCELLED` at once. If the worker hasn't opened its attempt yet, the send is stopped. If the message is already with the provider, it arrives, and the settle turns the row into `SENT` so the record matches what the customer got. Accepted: a stale reminder for a just-cancelled appointment is a minor annoyance, and coordinating a transaction with an in-flight external call is not achievable. |
 | Reschedule | Unsent reminders (`PENDING`/`CLAIMED`) → `CANCELLED`, and a fresh pair is written for the new time under the appointment's new version. It goes through the same constructor as booking, so §8.2's past-check re-applies: moving an appointment to 1 hour from now writes both as `SKIPPED_LATE`. |
 | Reschedule after T24H already `SENT` | The `SENT` row stays `SENT`; the customer also gets a T24H for the new time. That's new information, not a repeat — confirmed by the client (§14, Q2). |
 | Reschedule to the same time | No-op, `200`. Nothing new to tell the customer, so no new pair. |

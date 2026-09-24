@@ -14,7 +14,6 @@ import java.time.ZoneId;
 import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.BatchSize;
-import org.hibernate.annotations.SourceType;
 import org.hibernate.annotations.UpdateTimestamp;
 
 // The dispatcher reads the appointments of up to 200 claimed reminders inside its claim
@@ -67,7 +66,9 @@ public class Appointment {
 	@Version
 	private int version;
 
-	@UpdateTimestamp(source = SourceType.DB)
+	// Not source = DB. That reads the value back with RETURNING, and when two requests race
+	// on one version the loser gets a 500 instead of the version-conflict 409.
+	@UpdateTimestamp
 	private Instant updatedAt;
 
 	protected Appointment() {
