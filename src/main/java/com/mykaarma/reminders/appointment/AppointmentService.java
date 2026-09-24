@@ -105,14 +105,12 @@ public class AppointmentService {
 					"Only a booked appointment can be rescheduled; this one is " + appointment.getStatus());
 		}
 		Instant scheduledAt = requested.toInstant().truncatedTo(ChronoUnit.MICROS);
-		// Nothing moved, so the customer has nothing new to hear about.
 		if (scheduledAt.equals(appointment.getScheduledAt())) {
 			return appointment;
 		}
 		Instant now = clock.instant();
 		checkBookable(requested, appointment.getLocalTz(), now);
 		appointment.reschedule(scheduledAt);
-		// Flushed first so the new pair is written under the version this change creates.
 		appointments.flush();
 		reminders.cancelUnsent(appointment.getId());
 		remind(appointment, now);
