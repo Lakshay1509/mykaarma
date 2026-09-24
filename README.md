@@ -116,21 +116,34 @@ each.
 ## How it works
 
 ```mermaid
-flowchart LR
-    client["Dealer system or booking UI"]
-    subgraph jar["One JAR, role chosen by app.worker.enabled"]
-        api["API"]
-        worker["Dispatcher<br/>every worker polls at once"]
-    end
-    db[("PostgreSQL 16<br/>the reminder table is the queue")]
-    sender["NotificationSender<br/>logging stub"]
+flowchart TB
+    client["Dealer DMS or booking UI"]
+    api["API nodes ×3<br/>stateless, behind a load balancer<br/>app.worker.enabled=false"]
+    primary[("PostgreSQL 16 primary<br/>appointment · reminder (the queue)<br/>reminder_attempt · dealership")]
+    standby[("sync standby<br/>failover")]
+    replica[("async read replica<br/>GETs and reports")]
+    worker["Dispatcher workers ×3<br/>same JAR, app.worker.enabled=true<br/>scaled separately from the API"]
 
-    client -->|"POST /v1/appointments<br/>Idempotency-Key"| api
-    api -->|"one transaction:<br/>appointment + both reminders"| db
-    worker -->|"1 claim up to 200 due rows<br/>SKIP LOCKED, 60 s lease"| db
-    worker -->|"2 send(payload, key)<br/>no transaction open"| sender
-    worker -->|"3 settle, only if still<br/>the claim holder"| db
+    subgraph sender["NotificationSender interface"]
+        stub["LoggingNotificationSender<br/>stub with measured provider latency"]
+        real["TwilioSender, SesSender"]
+    end
+
+    client -->|"REST + Idempotency-Key"| api
+    api -->|"one transaction:<br/>appointment + both reminders"| primary
+    primary -.->|"sync commit"| standby
+    standby -.->|"async"| replica
+    primary <-->|"claim: FOR UPDATE SKIP LOCKED, every 1 s,<br/>up to 200 rows, 60 s lease<br/>settle: only if still the claim holder"| worker
+    worker -->|"send(payload, idempotencyKey)<br/>no transaction open"| stub
+    worker -.-> real
+
+    classDef planned stroke-dasharray: 5 5
+    class standby,replica,real planned
 ```
+
+This is §3 of [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md). Dashed parts are designed but not
+built yet: the standby, the read replica, and the real provider adapters. `docker compose`
+runs a single node in both roles.
 
 Booking writes the appointment and both reminder rows in one transaction. Each worker
 polls every second, claims up to 200 due rows, sends them concurrently on virtual threads,

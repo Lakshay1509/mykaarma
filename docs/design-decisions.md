@@ -11,11 +11,11 @@ Nothing ever leaves `SENT`.
 stateDiagram-v2
     [*] --> PENDING: booked
     [*] --> SKIPPED_LATE: booked inside the lead time
-    PENDING --> CLAIMED: claimed with a 60 s lease
+    PENDING --> CLAIMED: claimed
     CLAIMED --> SENT: provider OK
-    CLAIMED --> PENDING: RETRYABLE with backoff, or lease expired
-    CLAIMED --> DEAD: PERMANENT, or 6th send died mid-flight
-    CLAIMED --> SKIPPED_LATE: too close to the appointment to help
+    CLAIMED --> PENDING: retry, or lease expired
+    CLAIMED --> DEAD: PERMANENT, or 6th crash
+    CLAIMED --> SKIPPED_LATE: too late to help
     PENDING --> CANCELLED: cancel or reschedule
     CLAIMED --> CANCELLED: cancel or reschedule
     CANCELLED --> SENT: message was already with the provider
