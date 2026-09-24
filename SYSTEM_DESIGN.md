@@ -821,19 +821,28 @@ the surrounding code respects it.
 ```java
 @Test
 void tenWorkersRacingOneReminder_sendExactlyOnce() throws Exception {
-    Reminder r = fixtures.dueReminder();
-    var latch = new CountDownLatch(1);
-    var pool  = Executors.newFixedThreadPool(10);
+    long id = dueReminder();
+    var startingGun = new CyclicBarrier(10);   // all 10 hit the claim query together
+    var workers = new ArrayList<Callable<Void>>();
+    for (int i = 0; i < 10; i++) {
+        var worker = new Dispatcher(...);
+        workers.add(() -> { startingGun.await(); worker.poll(); return null; });
+    }
+    try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+        for (var finished : pool.invokeAll(workers)) finished.get();
+    }
 
-    for (int i = 0; i < 10; i++)
-        pool.submit(() -> { latch.await(); dispatcher.runOnce(); return null; });
-    latch.countDown();                      // all 10 hit the claim query together
-    pool.shutdown(); pool.awaitTermination(30, SECONDS);
-
-    assertThat(countingSender.callsFor(r.id())).isEqualTo(1);
-    assertThat(reminderRepo.find(r.id()).status()).isEqualTo(SENT);
+    assertThat(sent).containsExactly(keyOf(id));
+    assertThat(statusAndAttempts(id)).isEqualTo("SENT:1");
 }
 ```
+
+Without `FOR UPDATE`, all ten workers claim the row (`SENT:10`), yet the send count
+can still read 1. Each claim overwrites `claimed_by` and `openAttempt` checks it, so
+usually only the last claimer sends. That is why the test also asserts the claim count.
+Dropping only `SKIP LOCKED` keeps this test green, because workers wait for the row
+instead of double-claiming it; `rowsLockedByOneWorker_areSkippedByAnotherInsteadOfWaitedOn`
+catches that case.
 
 Runs against real PostgreSQL via **Testcontainers** — H2 does not implement
 `SKIP LOCKED`, so an in-memory DB would make this test pass while the production

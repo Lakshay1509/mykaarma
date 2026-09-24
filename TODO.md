@@ -142,8 +142,8 @@ Goal: reminders actually go out.
 
 ## Phase 6 — Proof  *(~4h)*  ← what's actually being graded
 
-- [ ] 👤 🧠 **`tenWorkersRacingOneReminder_sendExactlyOnce`** — the most important test in the repo
-- [ ] 👤 🧠 **Crash test** — sender records then throws; expire lease; assert 2 attempts, same key, **1** `SENT`
+- [x] 👤 🧠 **`tenWorkersRacingOneReminder_sendExactlyOnce`** — the most important test in the repo *(`DispatcherConcurrencyTest`: ten `Dispatcher`s, own `workerId` each, released by one barrier; asserts one send and `attempt_count = 1`)*
+- [x] 👤 🧠 **Crash test** — sender records then throws; expire lease; assert 2 attempts, same key, **1** `SENT` *(in `DispatcherConcurrencyTest`: the first worker's send throws after the provider has the message; once the lease is expired, a second worker sweeps and resends. Goes red if the key is regenerated per claim)*
 - [ ] 👤 DST tests — Mar 8 2026 spring-forward, Nov 1 2026 fall-back, nonexistent local time → `422`
 - [ ] 🤖 Idempotent-`POST` test, cancel test, reschedule test
 - [ ] 🤖 Randomised 10k-appointment workload with injected failures
@@ -152,7 +152,7 @@ Goal: reminders actually go out.
 
 **Acceptance**
 - `./mvnw test` green
-- The concurrency test **fails** if you delete `SKIP LOCKED` from the query *(verify this — a test that can't fail proves nothing)*
+- The concurrency test **fails** if you delete `FOR UPDATE SKIP LOCKED` from the query *(verified: all ten workers claimed, `SENT:10`. With only `SKIP LOCKED` deleted it stays green, because workers queue instead of double-claiming; `ReminderClaimTest#rowsLockedByOneWorker_…` goes red instead)*
 
 > 🧠 That last bullet is the one to actually do. Break it on purpose, watch it go red, put it back.
 
