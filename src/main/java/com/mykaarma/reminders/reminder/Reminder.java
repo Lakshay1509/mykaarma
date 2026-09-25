@@ -48,7 +48,7 @@ public class Reminder {
 		this.appointmentVersion = appointment.getVersion();
 		this.dueAt = reminderType.dueAt(appointment.getScheduledAt());
 		// Booked inside the lead time: as PENDING it would fire at once, e.g. "your
-		// appointment is tomorrow" three hours before it (§8.2).
+		// appointment is tomorrow" three hours before it (section 8.2).
 		this.status = dueAt.isBefore(now) ? Status.SKIPPED_LATE : Status.PENDING;
 		this.idempotencyKey = UUID.nameUUIDFromBytes(
 				(appointment.getPublicId() + ":" + reminderType + ":" + appointmentVersion).getBytes(StandardCharsets.UTF_8));

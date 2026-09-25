@@ -1,6 +1,6 @@
 # Java 25 for this project only.  Usage:  source env.sh
 #
-# The global JAVA_HOME in ~/.bashrc stays pinned to JDK 17 on purpose —
+# The global JAVA_HOME in ~/.bashrc stays pinned to JDK 17 on purpose:
 # React Native's CMake tasks break on JDK 24+. Nothing here touches that.
 # Override the location with:  JDK25=/path/to/jdk source env.sh
 

@@ -11,7 +11,7 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
 	List<Reminder> findByAppointmentOrderByDueAt(Appointment appointment);
 
-	// §10.1. A retry moves due_at forward, so a provider that keeps failing fast doesn't
+	// Section 10.1. A retry moves due_at forward, so a provider that keeps failing fast doesn't
 	// raise this; the send error rate shows it.
 	@Query(value = """
 			SELECT coalesce(extract(epoch FROM now() - min(due_at)), 0)::float8
@@ -20,8 +20,8 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 			   AND due_at <= now()""", nativeQuery = true)
 	double lagSeconds();
 
-	// Every worker runs this at once (§6.2): SKIP LOCKED hands each one different rows.
-	// due_at is compared to the database's now(), never the app's clock (§9 FM-7).
+	// Every worker runs this at once (section 6.2): SKIP LOCKED hands each one different rows.
+	// due_at is compared to the database's now(), never the app's clock (section 9, FM-7).
 	@Transactional
 	@Query(value = """
 			UPDATE reminder
@@ -41,9 +41,9 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 	List<Reminder> claimDue(String workerId);
 
 	// No ShedLock, because every worker can run this safely: a released row no longer
-	// matches, and SKIP LOCKED keeps two sweeps from waiting on each other (§6.3).
+	// matches, and SKIP LOCKED keeps two sweeps from waiting on each other (section 6.3).
 	// Counts only sends that died mid-flight: attempts never closed, or closed ABANDONED
-	// because the worker lost the row first. Those won't succeed on a seventh try (§9 FM-9).
+	// because the worker lost the row first. Those won't succeed on a seventh try (section 9, FM-9).
 	// attempt_count would also count RETRYABLE answers, and a reminder that is still useful
 	// should keep retrying until the outage ends (FM-5).
 	@Transactional
@@ -80,7 +80,7 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 	int markSent(long id, String workerId);
 
 	// The claim has already counted this attempt, so attempt_count - 1 makes the first
-	// retry wait 30s (§7.5). The exponent is capped too: from attempt 40, about nine
+	// retry wait 30s (section 7.5). The exponent is capped too: from attempt 40, about nine
 	// hours into an outage, 30s · 2ⁿ overflows interval before least() can clamp it.
 	@Transactional
 	@Modifying

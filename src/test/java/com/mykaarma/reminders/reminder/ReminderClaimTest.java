@@ -58,7 +58,7 @@ class ReminderClaimTest {
 	@Test
 	void claim_leasesOnlyPendingRemindersThatAreDueByTheDatabaseClock() {
 		long due = reminder("T24H", "PENDING", "now() - interval '1 minute'");
-		// A minute out, so a claim reading a node's clock a few minutes fast would take it (§9 FM-7).
+		// A minute out, so a claim reading a node's clock a few minutes fast would take it (section 9, FM-7).
 		reminder("T2H", "PENDING", "now() + interval '1 minute'");
 
 		assertThat(reminders.claimDue("worker-a")).hasSize(1);

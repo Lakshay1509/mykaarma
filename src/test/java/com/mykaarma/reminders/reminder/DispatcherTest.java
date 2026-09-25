@@ -64,7 +64,7 @@ class DispatcherTest {
 	}
 
 	// The test clock reads 2026-09-21 12:00Z. The T24H is more overdue than the T2H and
-	// still gets sent, so a grace window on due_at can't pass this test (§8.3).
+	// still gets sent, so a grace window on due_at can't pass this test (section 8.3).
 	@Test
 	void t2hTwoHoursLate_isSkipped_whileT24hFourHoursLate_stillSends(CapturedOutput output)
 			throws InterruptedException {

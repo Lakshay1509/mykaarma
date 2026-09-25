@@ -20,7 +20,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-// §9 FM-10: a vendor that hangs must not hold database connections. The batch is twice
+// Section 9, FM-10: a vendor that hangs must not hold database connections. The batch is twice
 // the default pool of 10, so a send inside a transaction would drain the pool.
 @Import({ TestcontainersConfiguration.class, SlowVendorTest.Config.class })
 @SpringBootTest(properties = "app.worker.enabled=true")

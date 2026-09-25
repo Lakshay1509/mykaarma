@@ -51,7 +51,7 @@ class Dispatcher {
 
 	private final Counter skippedLate;
 
-	// Separate reasons because only crashes should page (§9 FM-9). Permanent failures are
+	// Separate reasons because only crashes should page (section 9, FM-9). Permanent failures are
 	// invalid numbers or unsubscribed customers.
 	private final Counter deadPermanent;
 
@@ -76,13 +76,13 @@ class Dispatcher {
 	}
 
 	// No ShedLock, and none should be added: every worker polls at once and SKIP LOCKED
-	// hands each a different batch. A lock here would leave all but one worker idle (§6.2).
+	// hands each a different batch. A lock here would leave all but one worker idle (section 6.2).
 	@Scheduled(fixedDelay = 1000)
 	void poll() {
 		List<Claimed> batch = transactions
 			.execute(tx -> reminders.claimDue(workerId).stream().map(Dispatcher::claimed).toList());
 		// All sends start together, so a batch takes as long as its slowest send rather
-		// than the sum of 200 of them (§6.4). Waiting for the whole batch also keeps
+		// than the sum of 200 of them (section 6.4). Waiting for the whole batch also keeps
 		// claimed_by a safe fence, because this worker can't re-claim a row while its
 		// earlier send of it is still in flight.
 		try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -99,7 +99,7 @@ class Dispatcher {
 
 	// Deliberately outside any transaction. A vendor that hangs for 30s would otherwise
 	// hold one pooled connection per send, and a single batch would drain the pool the
-	// API needs too (§9 FM-10). The lease, not a transaction, protects the row meanwhile.
+	// API needs too (section 9, FM-10). The lease, not a transaction, protects the row meanwhile.
 	private void deliver(Claimed claimed) {
 		try {
 			// Taken before the attempt row opens, so a send still waiting here isn't recorded
@@ -135,7 +135,7 @@ class Dispatcher {
 				case OK -> reminders.markSent(claimed.id(), workerId);
 				case RETRYABLE -> reminders.scheduleRetry(claimed.id(), workerId, result.error());
 				// An invalid number or an unsubscribed customer fails the same way on every
-				// try, so retrying only adds provider calls (§7.5).
+				// try, so retrying only adds provider calls (section 7.5).
 				case PERMANENT -> {
 					int marked = reminders.markDead(claimed.id(), workerId, result.error());
 					deadPermanent.increment(marked);
@@ -172,7 +172,7 @@ class Dispatcher {
 		Appointment appointment = reminder.getAppointment();
 		String recipient = (appointment.getChannel() == Channel.SMS) ? appointment.getCustomerPhone()
 				: appointment.getCustomerEmail();
-		// The appointment's snapshotted zone (§4.1), not the server's and not the dealership's
+		// The appointment's snapshotted zone (section 4.1), not the server's and not the dealership's
 		// current one: a dealership changing its timezone must not move a booked time.
 		String when = LOCAL_TIME.format(appointment.getScheduledAt().atZone(appointment.getLocalTz()));
 		String body = "Reminder: your %s appointment for the %s is %s.".formatted(appointment.getServiceType(),

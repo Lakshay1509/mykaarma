@@ -28,7 +28,8 @@ public class AppointmentRemindersApplication {
 		return registry -> Gauge.builder("reminder.lag", reminders::lagSeconds).baseUnit("seconds").register(registry);
 	}
 
-	// Injected rather than read inline, so tests can freeze time.
+	// Reads the database's now(), so every node uses one clock (section 9, FM-7). A bean so tests
+	// can freeze time.
 	@Bean
 	Clock clock(JdbcTemplate jdbc) {
 		return new Clock() {
@@ -45,7 +46,7 @@ public class AppointmentRemindersApplication {
 
 			@Override
 			public Clock withZone(ZoneId zone) {
-				throw new UnsupportedOperationException("time stays an Instant (§6.1)");
+				throw new UnsupportedOperationException("time stays an Instant (section 6.1)");
 			}
 
 		};

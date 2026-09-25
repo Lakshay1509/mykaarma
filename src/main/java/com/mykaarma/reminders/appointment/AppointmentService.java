@@ -139,7 +139,7 @@ public class AppointmentService {
 			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "scheduledAt must be within 365 days");
 		}
 		// The offset must be one the dealership's timezone uses on that date. This rejects
-		// 02:30 on spring-forward night (§8.1), and a client that sends -06:00 all year
+		// 02:30 on spring-forward night (section 8.1), and a client that sends -06:00 all year
 		// for Chicago, which would book summer appointments an hour late.
 		if (!zone.getRules().isValidOffset(requested.toLocalDateTime(), requested.getOffset())) {
 			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "scheduledAt " + requested
