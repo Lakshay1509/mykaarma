@@ -1,13 +1,13 @@
 # Proving "never twice"
 
 How the guarantee in the [README](../README.md#the-guarantee) holds up, and the tests that
-show it. Section references like §7.3 point into [`SYSTEM_DESIGN.md`](../SYSTEM_DESIGN.md).
+show it. Section references like section 7.3 point into [`SYSTEM_DESIGN.md`](../SYSTEM_DESIGN.md).
 
 ## Where a duplicate can still happen
 
 A worker that dies between the provider call and the settle is the one place a duplicate
 can still reach a phone. I measured it by stopping a worker in the middle of a
-4,000-reminder batch (§7.3):
+4,000-reminder batch (section 7.3):
 
 | Stop | Re-sent | Why |
 |---|---|---|
@@ -66,8 +66,8 @@ source env.sh && ./mvnw test -Dtest=DispatcherConcurrencyTest
 
 ## Every invariant test was broken on purpose
 
-A test that can't fail proves nothing. For each of these I broke the mechanism, watched the
-test go red, and put it back.
+To confirm each of these tests can fail, I broke the mechanism it guards, watched the test
+go red, and put the mechanism back.
 
 | Break this | This goes red |
 |---|---|
@@ -86,7 +86,7 @@ would pass on it while proving nothing about Postgres. Every `@SpringBootTest` i
 
 ## Failure modes and corner cases
 
-Each row has a test that fails if the behaviour changes. The accepted risks are in §9.
+Each row has a test that fails if the behaviour changes. The accepted risks are in section 9.
 
 | Case | What happens | Test |
 |---|---|---|

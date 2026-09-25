@@ -140,7 +140,7 @@ flowchart TB
     class standby,replica,real planned
 ```
 
-This is §3 of [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md). Dashed parts are designed but not
+This is section 3 of [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md). Dashed parts are designed but not
 built yet: the standby, the read replica, and the real provider adapters. `docker compose`
 runs a single node in both roles.
 
@@ -158,7 +158,7 @@ and the rejected alternatives for each.
   be a second copy of "was this sent", and a Kafka delay can't be retracted on cancel.
 - [Ten times the load is a burst problem.](docs/design-decisions.md#ten-times-the-load-is-a-burst-problem)
   The brief's 50,000 appointments a day across 500 dealerships, designed for 10×: 500,000 a
-  day is about 2% of one Postgres node. The real constraint is 31,000 reminders due in the
+  day is about 2% of one Postgres node. The limit is the burst: 31,000 reminders due in the
   same second at slot boundaries, drained in 60 to 80 seconds.
 - [No transaction across the network call.](docs/design-decisions.md#the-network-call-sits-between-two-transactions)
   A hanging provider would otherwise drain the connection pool the API shares.

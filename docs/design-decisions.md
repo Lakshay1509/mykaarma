@@ -1,6 +1,6 @@
 # Design decisions
 
-What was decided, why, and what was rejected. Section references like §7.3 point into
+What was decided, why, and what was rejected. Section references like section 7.3 point into
 [`SYSTEM_DESIGN.md`](../SYSTEM_DESIGN.md).
 
 ## Reminder lifecycle
@@ -25,7 +25,7 @@ stateDiagram-v2
 
 Workers claim `reminder` rows with `SELECT … FOR UPDATE SKIP LOCKED`. Concurrent workers
 get disjoint rows without blocking each other, so there is no leader, and adding a worker
-adds throughput. Cancel and reschedule stay a plain `UPDATE`. Alternatives I rejected (§12):
+adds throughput. Cancel and reschedule stay a plain `UPDATE`. Alternatives I rejected (section 12):
 
 - Kafka or RabbitMQ delayed messages. A message sitting in a 24-hour delay can't be
   retracted, and cancels and reschedules are routine. The workaround is a table of reminder
@@ -42,7 +42,7 @@ adds throughput. Cancel and reschedule stay a plain `UPDATE`. Alternatives I rej
 
 At 10× the brief (500,000 appointments a day), a Monday-morning peak is about 70 writes
 per second. That is roughly 2% of one Postgres node, so there is no sharding, caching,
-broker, or read replica here. §10.4 commits in advance to the thresholds that would justify
+broker, or read replica here. Section 10.4 commits in advance to the thresholds that would justify
 each one (sharding, for example, at 3,000 write TPS), so that decision isn't made in a panic.
 
 Appointments are booked on the hour and half hour,
@@ -201,5 +201,5 @@ Recipients are masked in logs (`+1415•••0137`, `a•••@example.com`).
 - The in-flight cap is per worker. It is set to the account limit divided by the worker
   count, so adding workers means lowering it.
 
-The nightly duplicate check from §10.2 was cut from the code. It can't find a row while the
-constraint exists, and the random-workload test runs the same query on every build.
+The code has no nightly duplicate check (section 10.2). It can't find a row while the constraint
+exists, and the random-workload test runs the same query on every build.
