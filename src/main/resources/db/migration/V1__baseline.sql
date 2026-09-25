@@ -3,7 +3,7 @@ CREATE TABLE dealership (
     external_id       VARCHAR(64)  NOT NULL UNIQUE,
     name              VARCHAR(200) NOT NULL,
     timezone          VARCHAR(64)  NOT NULL,   -- IANA, e.g. America/Chicago
-    quiet_hours_start TIME,                    -- not enforced yet, see §14 Q3
+    quiet_hours_start TIME,                    -- not enforced yet, see section 14 Q3
     quiet_hours_end   TIME,
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
