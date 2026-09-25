@@ -71,7 +71,6 @@ NOTIFICATION channel=SMS to=+1415•••0137 type=T24H appointment=… idempot
 ```
 
 Prometheus is on <http://localhost:9090> (query `reminder_lag_seconds`).
-[`DEMO.md`](DEMO.md) walks through booking, sending, replaying, and watching lag climb.
 
 To work on the code:
 
@@ -234,9 +233,7 @@ load needs them yet.
 | [`docs/proof.md`](docs/proof.md) | The measured re-sends, SQL checks, tests broken on purpose, failure modes with their tests |
 | [`docs/design-decisions.md`](docs/design-decisions.md) | Reminder lifecycle, each decision with its reasoning, known limits |
 | [`docs/api.md`](docs/api.md) | Endpoints, status codes, a `curl` example, the demo dealerships |
-| [`DEMO.md`](DEMO.md) | Live demo script |
 | [`SYSTEM_DESIGN.md`](SYSTEM_DESIGN.md) | Full design: load math, failure modes, sizing, rejected alternatives |
-| [`TODO.md`](TODO.md) | Phased build plan, with what each phase verified |
 
 To review the code, start with
 [`V2__reminder.sql`](src/main/resources/db/migration/V2__reminder.sql) (the constraint and

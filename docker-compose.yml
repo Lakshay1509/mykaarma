@@ -27,6 +27,20 @@ services:
       postgres:
         condition: service_healthy
 
+  # Extra dispatcher nodes, same JAR (§3): docker compose --profile workers up -d --scale worker=10
+  worker:
+    build: .
+    profiles: [workers]
+    environment:
+      DB_HOST: postgres
+      SPRING_PROFILES_ACTIVE: dev   # Flyway refuses to start if the dev migration it already applied is missing
+      APP_WORKER_ENABLED: "true"
+      SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: 5   # 10 workers x 5 + the app's 10 stays under Postgres's 100
+      JAVA_TOOL_OPTIONS: -Xmx256m
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   prometheus:
     image: prom/prometheus:v3.14.0
     configs:
