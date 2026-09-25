@@ -189,7 +189,7 @@ The brief allows optional behaviour if the decision and the reasoning are writte
 |---|---|
 | `Idempotency-Key` on `POST` | A client retry after a lost response would create a second appointment, and the customer would get every reminder twice without any single send repeating |
 | Cancel (`DELETE`) | An unsent reminder for a cancelled appointment is a wrong message to a real customer |
-| Reschedule (`PATCH` with `If-Match`) | The most common real-world change to a service appointment. The client confirmed customers should be reminded for the new time |
+| Reschedule (`PATCH` with `If-Match`) | The most common real-world change to a service appointment. Customers are reminded for the new time. I assumed that without asking the client |
 | `GET /v1/appointments/{id}/reminders` | Shows each reminder's status and idempotency key, so "never twice" can be checked per appointment |
 | Skipping reminders that are too late to help | "Your appointment is in 2 hours", sent after it started, is worse than no message |
 | Prometheus metrics, led by `reminder_lag_seconds` | One number that shows reminders falling behind, whatever the cause |
@@ -201,7 +201,7 @@ Each has a default, so none of them blocked the build.
 | Question | Default |
 |---|---|
 | Is "24 hours before" exact, or the day before at a fixed hour? | Exact elapsed time |
-| Remind again after a reschedule? | Yes. I asked, and the client confirmed |
+| Remind again after a reschedule? | Yes. I assumed this and did not ask the client |
 | Quiet hours: suppress or shift a 2 AM reminder? | Columns exist on `dealership`, not enforced yet |
 | Booked inside the window: send a confirmation instead? | Skip. A confirmation is a different message type |
 | SMS and email, or one channel? | One channel per appointment |

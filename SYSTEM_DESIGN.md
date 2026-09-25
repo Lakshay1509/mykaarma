@@ -714,7 +714,7 @@ customer and generates a support call.
 | Cancel | `PENDING`/`CLAIMED` → `CANCELLED`. Already-`SENT` rows are untouched, because a sent message cannot be unsent. |
 | Cancel racing with dispatch | The claim transaction has committed before the send, so nothing blocks the cancel. It marks the `CLAIMED` row `CANCELLED` at once. If the worker hasn't opened its attempt yet, the send is stopped. If the message is already with the provider, it arrives, and the settle turns the row into `SENT` so the record matches what the customer got. Accepted: a stale reminder for a just-cancelled appointment is a minor annoyance, and coordinating a transaction with an in-flight external call is not achievable. |
 | Reschedule | Unsent reminders (`PENDING`/`CLAIMED`) → `CANCELLED`, and a fresh pair is written for the new time under the appointment's new version. It goes through the same constructor as booking, so section 8.2's past-check re-applies: moving an appointment to 1 hour from now writes both as `SKIPPED_LATE`. |
-| Reschedule after T24H already `SENT` | The `SENT` row stays `SENT`; the customer also gets a T24H for the new time. That is new information, not a repeat; the client confirmed this behaviour (section 14, Q2). |
+| Reschedule after T24H already `SENT` | The `SENT` row stays `SENT`; the customer also gets a T24H for the new time. That is new information, not a repeat. This is an assumption; the client was not asked (section 14, Q2). |
 | Reschedule to the same time | No-op, `200`. Nothing new to tell the customer, so no new pair. |
 | Reschedule after cancellation | `409`, because a cancelled appointment is terminal. |
 
@@ -958,7 +958,7 @@ nothing blocks.
 | # | Question | Assumed default |
 |---|---|---|
 | Q1 | Is "24 hours before" exact elapsed time, or "the day before at a fixed hour" (e.g. 6 PM)? Many dealer systems do the latter to avoid 3 AM sends. | Exact 24h. |
-| Q2 | After a reschedule, should an already-sent reminder be re-sent for the new time? (section 8.4) | Answered: yes. A fresh pair per appointment version. |
+| Q2 | After a reschedule, should an already-sent reminder be re-sent for the new time? (section 8.4) | Yes, assumed without asking. A fresh pair per appointment version. |
 | Q3 | Quiet hours: suppress or shift a reminder that lands at 2 AM local? | Column present, enforcement off by default. |
 | Q4 | Booked inside the window: send an immediate confirmation instead of skipping? (section 8.2) | Skip, don't substitute. |
 | Q5 | SMS and email, or one preferred channel? | One channel per appointment; the data model supports both. |

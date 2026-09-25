@@ -166,7 +166,7 @@ Reschedule takes `If-Match: <version>` and returns `409` on a stale version. Uns
 reminders are cancelled, and a new pair is written for the new time under the next
 appointment version, through the same constructor as booking, so the short-notice rule
 applies to both. A reminder that was already sent stays `SENT`, and the customer is reminded
-again for the new time; I asked, and the client wants that. The version is part of the
+again for the new time. That is my assumption; I did not ask the client. The version is part of the
 unique key and of the idempotency key, so a deduplicating provider won't swallow the new
 pair. Rescheduling to the same time is a no-op `200`. Rescheduling a cancelled appointment
 is a `409`.
